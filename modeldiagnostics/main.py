@@ -196,7 +196,7 @@ class ModelDiagnostics:
         axs[1, 0].set_ylabel(r'$\sqrt{|\text{Standardized Residuals}|}$')
 
         # Residuals vs Leverage — обновлённый блок
-        threshold_cooks_d = 0.5  # Порог для аномалий
+        threshold_cooks_d = 4 / n  # Динамический порог: 4 / количество наблюдений
         outlier_mask = cooks_d > threshold_cooks_d
         non_outlier_mask = ~outlier_mask
 
@@ -237,13 +237,13 @@ class ModelDiagnostics:
                     bbox=dict(boxstyle="round,pad=0.3", edgecolor="red", facecolor="white", alpha=0.7)
                 )
 
-        axs[1, 1].set_title(f'{title_prefix}: Residuals vs Leverage\n(Size ~ Cook\'s Distance, outliers in red)')
+        axs[1, 1].set_title(f'{title_prefix}: Residuals vs Leverage\n(Size ~ Cook\'s Distance, outliers in red)\n(Threshold: Cook\'s D > 4/n = {threshold_cooks_d:.4f})')
         axs[1, 1].set_xlabel('Leverage')
         axs[1, 1].set_ylabel('Residuals')
         axs[1, 1].axhline(y=0, color='r', linestyle='--')
 
         if outlier_mask.any():
-            sc = axs[1, 1].scatter([], [], c='red', s=100, label='Outliers (Cook\'s D > 0.5)')
+            sc = axs[1, 1].scatter([], [], c='red', s=100, label=f'Outliers (Cook\'s D > {threshold_cooks_d:.2f})')
         sc = axs[1, 1].scatter([], [], c='green', s=100, alpha=0.5, label='Normal')
         axs[1, 1].legend()
 
@@ -263,6 +263,22 @@ class ModelDiagnostics:
         plt.suptitle(f'{title_prefix} Diagnostic Plots', y=1.02)
         plt.subplots_adjust(bottom=0.2)  # Добавляем место для таблицы
         plt.show()
+
+        # === Вывод таблицы с аномальными точками ===
+        if outlier_mask.any():
+            anomaly_indices = np.where(outlier_mask)[0]
+            anomaly_data = pd.DataFrame({
+                'Index': anomaly_indices,
+                'Leverage': leverage[outlier_mask],
+                'Residual': residuals[outlier_mask],
+                'Cook\'s D': cooks_d[outlier_mask]
+            })
+            print(f"\n=== Таблица наиболее аномальных точек (Cook's D > {threshold_cooks_d:.4f}) ===")
+            print(anomaly_data.to_string(index=False))
+            return anomaly_data
+        else:
+            print(f"\n=== Аномальных точек не найдено (Cook's D > {threshold_cooks_d:.4f}) ===")
+            return pd.DataFrame()
 
         # === Вывод таблицы с аномальными точками ===
         if outlier_mask.any():
