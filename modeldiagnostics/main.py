@@ -196,7 +196,7 @@ class ModelDiagnostics:
         axs[1, 0].set_ylabel(r'$\sqrt{|\text{Standardized Residuals}|}$')
 
         # Residuals vs Leverage — обновлённый блок
-        threshold_cooks_d = 0.5  # Порог для аномалий по Cook's Distance
+        threshold_cooks_d = 0.5  # Порог для аномалий
         outlier_mask = cooks_d > threshold_cooks_d
         non_outlier_mask = ~outlier_mask
 
@@ -261,7 +261,24 @@ class ModelDiagnostics:
 
         plt.tight_layout()
         plt.suptitle(f'{title_prefix} Diagnostic Plots', y=1.02)
+        plt.subplots_adjust(bottom=0.2)  # Добавляем место для таблицы
         plt.show()
+
+        # === Вывод таблицы с аномальными точками ===
+        if outlier_mask.any():
+            anomaly_indices = np.where(outlier_mask)[0]
+            anomaly_data = pd.DataFrame({
+                'Index': anomaly_indices,
+                'Leverage': leverage[outlier_mask],
+                'Residual': residuals[outlier_mask],
+                'Cook\'s D': cooks_d[outlier_mask]
+            })
+            print("\n=== Таблица наиболее аномальных точек (Cook's D > 0.5) ===")
+            print(anomaly_data.to_string(index=False))
+            return anomaly_data
+        else:
+            print("\n=== Аномальных точек не найдено (Cook's D > 0.5) ===")
+            return pd.DataFrame()
 
     def test_normality_kolmogorov(self, real_values, predicted_values, verbose=True):
         """
