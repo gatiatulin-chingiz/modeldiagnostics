@@ -5,7 +5,8 @@ import seaborn as sns
 from catboost import CatBoostClassifier
 from sklearn.metrics import (
     mean_squared_error, mean_absolute_error, r2_score,
-    mean_absolute_percentage_error, max_error, roc_auc_score, accuracy_score
+    mean_absolute_percentage_error, max_error, roc_auc_score, accuracy_score,
+    f1_score, precision_score, recall_score, matthews_corrcoef
 )
 from sklearn.model_selection import train_test_split
 from shap import TreeExplainer, summary_plot
@@ -483,11 +484,6 @@ class ModelDiagnostics:
             plt.show()
 
     def plot_fairness_by_group(self, X, y, group_col, plot=True):
-        import numpy as np
-        import matplotlib.pyplot as plt
-        import seaborn as sns
-        import pandas as pd
-
         sns.set_theme(style="whitegrid", font_scale=1.15)
         df = X.copy()
         df['target'] = y
