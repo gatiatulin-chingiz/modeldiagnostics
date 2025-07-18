@@ -200,6 +200,11 @@ class ModelDiagnostics:
         outlier_mask = cooks_d > threshold_cooks_d
         non_outlier_mask = ~outlier_mask
 
+        # Преобразуем в numpy.array для безопасного доступа по индексу
+        residuals = np.array(residuals)
+        leverage = np.array(leverage)
+        cooks_d = np.array(cooks_d)
+
         sns.scatterplot(
             x=leverage[non_outlier_mask], 
             y=residuals[non_outlier_mask],
@@ -278,22 +283,6 @@ class ModelDiagnostics:
             return anomaly_data
         else:
             print(f"\n=== Аномальных точек не найдено (Cook's D > {threshold_cooks_d:.4f}) ===")
-            return pd.DataFrame()
-
-        # === Вывод таблицы с аномальными точками ===
-        if outlier_mask.any():
-            anomaly_indices = np.where(outlier_mask)[0]
-            anomaly_data = pd.DataFrame({
-                'Index': anomaly_indices,
-                'Leverage': leverage[outlier_mask],
-                'Residual': residuals[outlier_mask],
-                'Cook\'s D': cooks_d[outlier_mask]
-            })
-            print("\n=== Таблица наиболее аномальных точек (Cook's D > 0.5) ===")
-            print(anomaly_data.to_string(index=False))
-            return anomaly_data
-        else:
-            print("\n=== Аномальных точек не найдено (Cook's D > 0.5) ===")
             return pd.DataFrame()
 
     def test_normality_kolmogorov(self, real_values, predicted_values, verbose=True):
