@@ -161,11 +161,12 @@ class ModelDiagnostics:
             eps = 1e-15  # Защита от log(0)
             predicted_values = np.clip(predicted_values, eps, 1 - eps)
             residuals = real_values * np.log(predicted_values) + (1 - real_values) * np.log(1 - predicted_values)
-            residuals = -residuals # Визуализируем как положительные значения
+            residuals = -residuals  # Визуализируем как положительные значения
             fitted = predicted_values
             title_prefix = title_prefix or "Classification (Pseudo-Residuals)"
         else:
             raise ValueError("task_type должен быть 'regression' или 'classification'")
+
         n = len(real_values)
         X_fitted = sm.add_constant(fitted)
         hat_matrix = X_fitted @ np.linalg.inv(X_fitted.T @ X_fitted) @ X_fitted.T
@@ -173,31 +174,79 @@ class ModelDiagnostics:
         mse = np.mean(residuals ** 2)
         std_residuals = residuals / np.sqrt(mse * (1 - leverage))
         cooks_d = (std_residuals ** 2) / 2 * (leverage / (1 - leverage))
+
         fig, axs = plt.subplots(3, 2, figsize=(16, 14))
+
         # Residuals vs Fitted
         sns.scatterplot(x=fitted, y=residuals, ax=axs[0, 0], alpha=0.6)
         axs[0, 0].axhline(y=0, color='r', linestyle='--')
         axs[0, 0].set_title(f'{title_prefix}: Residuals vs Fitted')
         axs[0, 0].set_xlabel('Fitted values')
         axs[0, 0].set_ylabel('Residuals')
+
         # Normal Q-Q
         sm.qqplot(residuals, line='s', ax=axs[0, 1])
         axs[0, 1].set_title(f'{title_prefix}: Normal Q-Q')
+
         # Scale-Location
         standardized_residuals = np.sqrt(np.abs(residuals))
         sns.scatterplot(x=fitted, y=standardized_residuals, ax=axs[1, 0], alpha=0.6)
         axs[1, 0].set_title(f'{title_prefix}: Scale-Location')
         axs[1, 0].set_xlabel('Fitted values')
         axs[1, 0].set_ylabel(r'$\sqrt{|\text{Standardized Residuals}|}$')
-        # Residuals vs Leverage
-        sc = sns.scatterplot(x=leverage, y=residuals, hue=cooks_d, size=cooks_d,
-                             sizes=(20, 200), alpha=0.7, palette='viridis',
-                             legend='brief', ax=axs[1, 1])
-        axs[1, 1].set_title(f'{title_prefix}: Residuals vs Leverage\n(Size ~ Cook\'s Distance)')
+
+        # Residuals vs Leverage — обновлённый блок
+        threshold_cooks_d = 0.5  # Порог для аномалий по Cook's Distance
+        outlier_mask = cooks_d > threshold_cooks_d
+        non_outlier_mask = ~outlier_mask
+
+        sns.scatterplot(
+            x=leverage[non_outlier_mask], 
+            y=residuals[non_outlier_mask],
+            hue=cooks_d[non_outlier_mask],
+            size=cooks_d[non_outlier_mask],
+            sizes=(20, 200),
+            alpha=0.7,
+            palette='viridis',
+            legend='brief',
+            ax=axs[1, 1]
+        )
+
+        if outlier_mask.any():
+            sns.scatterplot(
+                x=leverage[outlier_mask],
+                y=residuals[outlier_mask],
+                color='red',
+                edgecolor='black',
+                size=cooks_d[outlier_mask],
+                sizes=(100, 300),
+                alpha=0.9,
+                legend=False,
+                ax=axs[1, 1]
+            )
+            # Аннотация аномальных точек
+            for idx in np.where(outlier_mask)[0]:
+                axs[1, 1].annotate(
+                    f'{idx}',
+                    (leverage[idx], residuals[idx]),
+                    textcoords="offset points",
+                    xytext=(5, 5),
+                    ha='left',
+                    fontsize=8,
+                    color='red',
+                    bbox=dict(boxstyle="round,pad=0.3", edgecolor="red", facecolor="white", alpha=0.7)
+                )
+
+        axs[1, 1].set_title(f'{title_prefix}: Residuals vs Leverage\n(Size ~ Cook\'s Distance, outliers in red)')
         axs[1, 1].set_xlabel('Leverage')
         axs[1, 1].set_ylabel('Residuals')
         axs[1, 1].axhline(y=0, color='r', linestyle='--')
-        sc.legend_.set_title("Cook's D")
+
+        if outlier_mask.any():
+            sc = axs[1, 1].scatter([], [], c='red', s=100, label='Outliers (Cook\'s D > 0.5)')
+        sc = axs[1, 1].scatter([], [], c='green', s=100, alpha=0.5, label='Normal')
+        axs[1, 1].legend()
+
         # Distribution of residuals
         sns.histplot(residuals, ax=axs[2, 0], kde=True, bins=30, stat='density')
         mean_res = np.mean(residuals)
@@ -207,7 +256,9 @@ class ModelDiagnostics:
         axs[2, 0].set_title(f'{title_prefix}: Distribution of Residuals\n(Histogram + KDE)')
         axs[2, 0].set_xlabel('Residual Value')
         axs[2, 0].set_ylabel('Density')
+
         axs[2, 1].axis('off')
+
         plt.tight_layout()
         plt.suptitle(f'{title_prefix} Diagnostic Plots', y=1.02)
         plt.show()
