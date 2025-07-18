@@ -229,18 +229,6 @@ class ModelDiagnostics:
                 legend=False,
                 ax=axs[1, 1]
             )
-            # Аннотация аномальных точек
-            for idx in np.where(outlier_mask)[0]:
-                axs[1, 1].annotate(
-                    f'{idx}',
-                    (leverage[idx], residuals[idx]),
-                    textcoords="offset points",
-                    xytext=(5, 5),
-                    ha='left',
-                    fontsize=8,
-                    color='red',
-                    bbox=dict(boxstyle="round,pad=0.3", edgecolor="red", facecolor="white", alpha=0.7)
-                )
 
         axs[1, 1].set_title(f'{title_prefix}: Residuals vs Leverage\n(Size ~ Cook\'s Distance, outliers in red)\n(Threshold: Cook\'s D > 4/n = {threshold_cooks_d:.4f})')
         axs[1, 1].set_xlabel('Leverage')
@@ -269,7 +257,7 @@ class ModelDiagnostics:
         plt.subplots_adjust(bottom=0.2)  # Добавляем место для таблицы
         plt.show()
 
-        # === Вывод таблицы с аномальными точками ===
+        # === Вывод таблицы с аномальными точками (ограничено 10 строками) ===
         if outlier_mask.any():
             anomaly_indices = np.where(outlier_mask)[0]
             anomaly_data = pd.DataFrame({
@@ -277,8 +265,8 @@ class ModelDiagnostics:
                 'Leverage': leverage[outlier_mask],
                 'Residual': residuals[outlier_mask],
                 'Cook\'s D': cooks_d[outlier_mask]
-            })
-            print(f"\n=== Таблица наиболее аномальных точек (Cook's D > {threshold_cooks_d:.4f}) ===")
+            }).sort_values(by='Cook\'s D', ascending=False).head(10)
+            print(f"\n=== Таблица аномальных точек (Cook's D > {threshold_cooks_d:.4f}), топ-10 ===")
             print(anomaly_data.to_string(index=False))
             return anomaly_data
         else:
