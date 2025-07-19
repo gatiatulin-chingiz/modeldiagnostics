@@ -568,17 +568,40 @@ class ModelDiagnostics:
             }
     
     def analyze_top_errors(self, top_percent=0.1, error_type='abs', plot=True):
-        predicted = self.model.predict(self.X_train[self.features])
-        errors = self._inverse_transform(self.y_train) - predicted
+        if self.task_type == 'regression':
+            predicted = self.model.predict(self.X_train[self.features])
+            errors = self._inverse_transform(self.y_train) - predicted
 
-        if error_type == 'abs':
-            error_metric = np.abs(errors)
-        elif error_type == 'positive':
-            error_metric = np.where(errors < 0, np.abs(errors), 0)
-        elif error_type == 'negative':
-            error_metric = np.where(errors > 0, np.abs(errors), 0)
+            if error_type == 'abs':
+                error_metric = np.abs(errors)
+            elif error_type == 'positive':
+                error_metric = np.where(errors < 0, np.abs(errors), 0)
+            elif error_type == 'negative':
+                error_metric = np.where(errors > 0, np.abs(errors), 0)
+            else:
+                raise ValueError("error_type должен быть 'abs', 'positive' или 'negative'")
+        elif self.task_type == 'classification':
+            # Для классификации используем log-loss как метрику ошибки
+            predicted_proba = self.model.predict_proba(self.X_train[self.features])[:, 1]
+            eps = 1e-15  # Защита от log(0)
+            predicted_proba = np.clip(predicted_proba, eps, 1 - eps)
+            
+            # Log-loss для каждого образца
+            log_loss_per_sample = -(self.y_train * np.log(predicted_proba) + 
+                                   (1 - self.y_train) * np.log(1 - predicted_proba))
+            
+            if error_type == 'abs':
+                error_metric = log_loss_per_sample
+            elif error_type == 'positive':
+                # Ошибки для положительных классов (где y_true = 1)
+                error_metric = np.where(self.y_train == 1, log_loss_per_sample, 0)
+            elif error_type == 'negative':
+                # Ошибки для отрицательных классов (где y_true = 0)
+                error_metric = np.where(self.y_train == 0, log_loss_per_sample, 0)
+            else:
+                raise ValueError("error_type должен быть 'abs', 'positive' или 'negative'")
         else:
-            raise ValueError("error_type должен быть 'abs', 'positive' или 'negative'")
+            raise ValueError("task_type должен быть 'regression' или 'classification'")
 
         threshold = np.quantile(error_metric, 1 - top_percent)
         labels = (error_metric >= threshold).astype(int)
@@ -653,9 +676,22 @@ class ModelDiagnostics:
         sns.set_theme(style="whitegrid", font_scale=1.15)
         df = X.copy()
         df['target'] = y
-        df['prediction'] = self.model.predict(df[self.features])
-        df['error'] = df['target'] - df['prediction']
-        df['abs_error'] = abs(df['error'])
+        
+        if self.task_type == 'regression':
+            df['prediction'] = self.model.predict(df[self.features])
+            df['error'] = df['target'] - df['prediction']
+            df['abs_error'] = abs(df['error'])
+        elif self.task_type == 'classification':
+            df['prediction_proba'] = self.model.predict_proba(df[self.features])[:, 1]
+            df['prediction'] = (df['prediction_proba'] >= 0.5).astype(int)
+            # Для классификации используем log-loss как метрику ошибки
+            eps = 1e-15
+            df['prediction_proba'] = np.clip(df['prediction_proba'], eps, 1 - eps)
+            df['error'] = -(df['target'] * np.log(df['prediction_proba']) + 
+                           (1 - df['target']) * np.log(1 - df['prediction_proba']))
+            df['abs_error'] = abs(df['error'])
+        else:
+            raise ValueError("task_type должен быть 'regression' или 'classification'")
 
         is_numeric = pd.api.types.is_numeric_dtype(df[group_col])
 
@@ -751,10 +787,13 @@ class ModelDiagnostics:
         elif self.task_type == 'classification':
             pred_proba = self.model.predict_proba(self.X_test[self.features])[:, 1]
             self.diagnostics_plots(self.y_test, pred_proba, title_prefix="Test")
-        print("=== Тест Колмогорова-Смирнова на нормальность остатков ===")
-        self.test_normality_kolmogorov(self.y_test, self.model.predict(self.X_test[self.features]))
-        print("=== Тест на гетероскедастичность ===")
-        self.test_heteroscedasticity(self.y_test, self.model.predict(self.X_test[self.features]))
+        # Тесты только для задач регрессии
+        if self.task_type == 'regression':
+            print("=== Тест Колмогорова-Смирнова на нормальность остатков ===")
+            self.test_normality_kolmogorov(self.y_test, self.model.predict(self.X_test[self.features]))
+            print("=== Тест на гетероскедастичность ===")
+            self.test_heteroscedasticity(self.y_test, self.model.predict(self.X_test[self.features]))
+        
         print("=== Adversarial Validation ===")
         self.adversarial_validation()
         print("=== Анализ топ-ошибок ===")
