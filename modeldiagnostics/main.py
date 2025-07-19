@@ -20,14 +20,36 @@ from scipy import stats
 
 class ModelDiagnostics:
     def __init__(self, X_train, y_train, X_test, y_test, model, features=None, cat_features=None,
-                 target_transform=None, fairness=None, task_type='regression'):
+                 target_transform=None, fairness=None, task_type=None):
         """
         Инициализация диагностики модели.
         Args:
-            ...
+            X_train: Тренировочные признаки
+            y_train: Тренировочная целевая переменная
+            X_test: Тестовые признаки
+            y_test: Тестовая целевая переменная
+            model: Обученная модель
+            features: Список признаков для использования (по умолчанию все)
+            cat_features: Список категориальных признаков
             target_transform (str or None): Преобразование целевой переменной. Поддерживается: 'log1p' или None.
-            ...
+            fairness: Признак для анализа справедливости
+            task_type: Тип задачи - 'regression' или 'classification'
         """
+        # Проверка task_type
+        if task_type is None:
+            raise ValueError(
+                "Необходимо указать task_type. "
+                "Доступные значения:\n"
+                "- 'regression' - для задач регрессии\n"
+                "- 'classification' - для задач классификации"
+            )
+        
+        if task_type not in ['regression', 'classification']:
+            raise ValueError(
+                f"Неподдерживаемый task_type: '{task_type}'. "
+                "Доступные значения: 'regression' или 'classification'"
+            )
+        
         # Установка features по умолчанию
         if features is None:
             self.features = list(X_train.columns)
