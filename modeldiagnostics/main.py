@@ -7,7 +7,7 @@ from sklearn.metrics import (
     mean_squared_error, mean_absolute_error, r2_score,
     mean_absolute_percentage_error, max_error, roc_auc_score, accuracy_score,
     f1_score, precision_score, recall_score, matthews_corrcoef, average_precision_score,
-    precision_recall_curve)
+    precision_recall_curve, roc_curve)
 from sklearn.calibration import calibration_curve
 from sklearn.model_selection import train_test_split
 from shap import TreeExplainer, summary_plot
@@ -272,98 +272,122 @@ class ModelDiagnostics:
             fitted = predicted_values
             title_prefix = title_prefix or "Regression"
         elif self.task_type == 'classification':
-            # Вычисление псевдоостатков (log-loss)
-            eps = 1e-15  # Защита от log(0)
-            predicted_values = np.clip(predicted_values, eps, 1 - eps)
-            residuals = real_values * np.log(predicted_values) + (1 - real_values) * np.log(1 - predicted_values)
-            residuals = -residuals  # Визуализируем как положительные значения
-            fitted = predicted_values
-            title_prefix = title_prefix or "Classification (Pseudo-Residuals)"
+            title_prefix = title_prefix or "Classification"
         else:
             raise ValueError("task_type должен быть 'regression' или 'classification'")
 
-        n = len(real_values)
-        X_fitted = sm.add_constant(fitted)
-        hat_matrix = X_fitted @ np.linalg.inv(X_fitted.T @ X_fitted) @ X_fitted.T
-        leverage = np.diag(hat_matrix)
-        mse = np.mean(residuals ** 2)
-        std_residuals = residuals / np.sqrt(mse * (1 - leverage))
-        cooks_d = (std_residuals ** 2) / 2 * (leverage / (1 - leverage))
+        fig, axs = plt.subplots(6, 2, figsize=(16, 26))
 
-        fig, axs = plt.subplots(5, 2, figsize=(16, 22))
+        # Графики остатков только для регрессии
+        if self.task_type == 'regression':
+            n = len(real_values)
+            X_fitted = sm.add_constant(fitted)
+            hat_matrix = X_fitted @ np.linalg.inv(X_fitted.T @ X_fitted) @ X_fitted.T
+            leverage = np.diag(hat_matrix)
+            mse = np.mean(residuals ** 2)
+            std_residuals = residuals / np.sqrt(mse * (1 - leverage))
+            cooks_d = (std_residuals ** 2) / 2 * (leverage / (1 - leverage))
 
-        # Residuals vs Fitted
-        sns.scatterplot(x=fitted, y=residuals, ax=axs[0, 0], alpha=0.6)
-        axs[0, 0].axhline(y=0, color='r', linestyle='--')
-        axs[0, 0].set_title(f'{title_prefix}: Residuals vs Fitted')
-        axs[0, 0].set_xlabel('Fitted values')
-        axs[0, 0].set_ylabel('Residuals')
+            # Residuals vs Fitted
+            sns.scatterplot(x=fitted, y=residuals, ax=axs[0, 0], alpha=0.6)
+            axs[0, 0].axhline(y=0, color='r', linestyle='--')
+            axs[0, 0].set_title(f'{title_prefix}: Residuals vs Fitted')
+            axs[0, 0].set_xlabel('Fitted values')
+            axs[0, 0].set_ylabel('Residuals')
 
-        # Normal Q-Q
-        sm.qqplot(residuals, line='s', ax=axs[0, 1])
-        axs[0, 1].set_title(f'{title_prefix}: Normal Q-Q')
+            # Normal Q-Q
+            sm.qqplot(residuals, line='s', ax=axs[0, 1])
+            axs[0, 1].set_title(f'{title_prefix}: Normal Q-Q')
 
-        # Scale-Location
-        standardized_residuals = np.sqrt(np.abs(residuals))
-        sns.scatterplot(x=fitted, y=standardized_residuals, ax=axs[1, 0], alpha=0.6)
-        axs[1, 0].set_title(f'{title_prefix}: Scale-Location')
-        axs[1, 0].set_xlabel('Fitted values')
-        axs[1, 0].set_ylabel(r'$\sqrt{|\text{Standardized Residuals}|}$')
+            # Scale-Location
+            standardized_residuals = np.sqrt(np.abs(residuals))
+            sns.scatterplot(x=fitted, y=standardized_residuals, ax=axs[1, 0], alpha=0.6)
+            axs[1, 0].set_title(f'{title_prefix}: Scale-Location')
+            axs[1, 0].set_xlabel('Fitted values')
+            axs[1, 0].set_ylabel(r'$\sqrt{|\text{Standardized Residuals}|}$')
 
-        # Residuals vs Leverage — обновлённый блок
-        threshold_cooks_d = 4 / n  # Динамический порог: 4 / количество наблюдений
-        outlier_mask = cooks_d > threshold_cooks_d
-        non_outlier_mask = ~outlier_mask
+            # Residuals vs Leverage — обновлённый блок
+            threshold_cooks_d = 4 / n  # Динамический порог: 4 / количество наблюдений
+            outlier_mask = cooks_d > threshold_cooks_d
+            non_outlier_mask = ~outlier_mask
 
-        # Преобразуем в numpy.array для безопасного доступа по индексу
-        residuals = np.array(residuals)
-        leverage = np.array(leverage)
-        cooks_d = np.array(cooks_d)
+            # Преобразуем в numpy.array для безопасного доступа по индексу
+            residuals = np.array(residuals)
+            leverage = np.array(leverage)
+            cooks_d = np.array(cooks_d)
 
-        sns.scatterplot(
-            x=leverage[non_outlier_mask], 
-            y=residuals[non_outlier_mask],
-            hue=cooks_d[non_outlier_mask],
-            size=cooks_d[non_outlier_mask],
-            sizes=(20, 200),
-            alpha=0.7,
-            palette='viridis',
-            legend='brief',
-            ax=axs[1, 1]
-        )
-
-        if outlier_mask.any():
             sns.scatterplot(
-                x=leverage[outlier_mask],
-                y=residuals[outlier_mask],
-                color='red',
-                edgecolor='black',
-                size=cooks_d[outlier_mask],
-                sizes=(100, 300),
-                alpha=0.9,
-                legend=False,
+                x=leverage[non_outlier_mask], 
+                y=residuals[non_outlier_mask],
+                hue=cooks_d[non_outlier_mask],
+                size=cooks_d[non_outlier_mask],
+                sizes=(20, 200),
+                alpha=0.7,
+                palette='viridis',
+                legend='brief',
                 ax=axs[1, 1]
             )
 
-        axs[1, 1].set_title(f'{title_prefix}: Residuals vs Leverage\n(Size ~ Cook\'s Distance, outliers in red)\n(Threshold: Cook\'s D > 4/n = {threshold_cooks_d:.4f})')
-        axs[1, 1].set_xlabel('Leverage')
-        axs[1, 1].set_ylabel('Residuals')
-        axs[1, 1].axhline(y=0, color='r', linestyle='--')
+            if outlier_mask.any():
+                sns.scatterplot(
+                    x=leverage[outlier_mask],
+                    y=residuals[outlier_mask],
+                    color='red',
+                    edgecolor='black',
+                    size=cooks_d[outlier_mask],
+                    sizes=(100, 300),
+                    alpha=0.9,
+                    legend=False,
+                    ax=axs[1, 1]
+                )
 
-        if outlier_mask.any():
-            sc = axs[1, 1].scatter([], [], c='red', s=100, label=f'Outliers (Cook\'s D > {threshold_cooks_d:.2f})')
-        sc = axs[1, 1].scatter([], [], c='green', s=100, alpha=0.5, label='Normal')
-        axs[1, 1].legend()
+            axs[1, 1].set_title(f'{title_prefix}: Residuals vs Leverage\n(Size ~ Cook\'s Distance, outliers in red)\n(Threshold: Cook\'s D > 4/n = {threshold_cooks_d:.4f})')
+            axs[1, 1].set_xlabel('Leverage')
+            axs[1, 1].set_ylabel('Residuals')
+            axs[1, 1].axhline(y=0, color='r', linestyle='--')
 
-        # Distribution of residuals
-        sns.histplot(residuals, ax=axs[2, 0], kde=True, bins=30, stat='density')
-        mean_res = np.mean(residuals)
-        std_res = np.std(residuals)
-        x = np.linspace(*axs[2, 0].get_xlim(), 100)
-        axs[2, 0].plot(x, stats.norm.pdf(x, mean_res, std_res), 'b-', lw=2)
-        axs[2, 0].set_title(f'{title_prefix}: Distribution of Residuals\n(Histogram + KDE)')
-        axs[2, 0].set_xlabel('Residual Value')
-        axs[2, 0].set_ylabel('Density')
+            if outlier_mask.any():
+                sc = axs[1, 1].scatter([], [], c='red', s=100, label=f'Outliers (Cook\'s D > {threshold_cooks_d:.2f})')
+            sc = axs[1, 1].scatter([], [], c='green', s=100, alpha=0.5, label='Normal')
+            axs[1, 1].legend()
+
+            # Distribution of residuals
+            sns.histplot(residuals, ax=axs[2, 0], kde=True, bins=30, stat='density')
+            mean_res = np.mean(residuals)
+            std_res = np.std(residuals)
+            x = np.linspace(*axs[2, 0].get_xlim(), 100)
+            axs[2, 0].plot(x, stats.norm.pdf(x, mean_res, std_res), 'b-', lw=2)
+            axs[2, 0].set_title(f'{title_prefix}: Distribution of Residuals\n(Histogram + KDE)')
+            axs[2, 0].set_xlabel('Residual Value')
+            axs[2, 0].set_ylabel('Density')
+        else:
+            # Отключаем графики остатков для классификации
+            axs[0, 0].axis('off')
+            axs[0, 1].axis('off')
+            axs[1, 0].axis('off')
+            axs[1, 1].axis('off')
+            axs[2, 0].axis('off')
+
+        # ROC Curve для задач классификации (первый график)
+        if self.task_type == 'classification':
+            # Вычисляем ROC curve
+            fpr, tpr, _ = roc_curve(real_values, predicted_values)
+            roc_auc = roc_auc_score(real_values, predicted_values)
+            
+            # График ROC curve
+            axs[2, 0].plot(fpr, tpr, 'b-', linewidth=2, 
+                          label=f'ROC Curve (AUC = {roc_auc:.3f})')
+            axs[2, 0].plot([0, 1], [0, 1], 'k--', alpha=0.7, 
+                          label='Random Classifier (AUC = 0.5)')
+            axs[2, 0].set_xlabel('False Positive Rate')
+            axs[2, 0].set_ylabel('True Positive Rate')
+            axs[2, 0].set_title(f'{title_prefix}: ROC Curve')
+            axs[2, 0].legend()
+            axs[2, 0].grid(True, alpha=0.3)
+            axs[2, 0].set_xlim([0, 1])
+            axs[2, 0].set_ylim([0, 1])
+        else:
+            axs[2, 0].axis('off')
 
         # PR-Curve для задач классификации
         if self.task_type == 'classification':
@@ -440,6 +464,34 @@ class ModelDiagnostics:
         else:
             axs[4, 0].axis('off')
             axs[4, 1].axis('off')
+
+        # График сравнения ROC и PR кривых
+        if self.task_type == 'classification':
+            # Вычисляем ROC curve
+            fpr, tpr, _ = roc_curve(real_values, predicted_values)
+            roc_auc = roc_auc_score(real_values, predicted_values)
+            
+            # График сравнения ROC и PR кривых
+            axs[5, 0].plot(fpr, tpr, 'b-', linewidth=2, label=f'ROC (AUC = {roc_auc:.3f})')
+            
+            # Добавляем PR curve для сравнения
+            precision, recall, _ = precision_recall_curve(real_values, predicted_values)
+            pr_auc = average_precision_score(real_values, predicted_values)
+            axs[5, 0].plot(recall, precision, 'r-', linewidth=2, label=f'PR (AUC = {pr_auc:.3f})')
+            
+            axs[5, 0].set_xlabel('Recall / True Positive Rate')
+            axs[5, 0].set_ylabel('Precision / True Positive Rate')
+            axs[5, 0].set_title(f'{title_prefix}: ROC vs PR Curves Comparison')
+            axs[5, 0].legend()
+            axs[5, 0].grid(True, alpha=0.3)
+            axs[5, 0].set_xlim([0, 1])
+            axs[5, 0].set_ylim([0, 1])
+            
+            # Отключаем правый график в последней строке
+            axs[5, 1].axis('off')
+        else:
+            axs[5, 0].axis('off')
+            axs[5, 1].axis('off')
 
         plt.tight_layout()
         plt.suptitle(f'{title_prefix} Diagnostic Plots', y=1.02)
