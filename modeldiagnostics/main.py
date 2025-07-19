@@ -372,20 +372,23 @@ class ModelDiagnostics:
             axs[1, 1].axis('off')
             axs[2, 0].axis('off')
 
-        # ROC Curve для задач классификации (первый график)
+        # ROC vs PR Curves Comparison (график №1)
         if self.task_type == 'classification':
             # Вычисляем ROC curve
             fpr, tpr, _ = roc_curve(real_values, predicted_values)
             roc_auc = roc_auc_score(real_values, predicted_values)
             
-            # График ROC curve
-            axs[2, 0].plot(fpr, tpr, 'b-', linewidth=2, 
-                          label=f'ROC Curve (AUC = {roc_auc:.3f})')
-            axs[2, 0].plot([0, 1], [0, 1], 'k--', alpha=0.7, 
-                          label='Random Classifier (AUC = 0.5)')
-            axs[2, 0].set_xlabel('False Positive Rate')
-            axs[2, 0].set_ylabel('True Positive Rate')
-            axs[2, 0].set_title(f'{title_prefix}: ROC Curve')
+            # График сравнения ROC и PR кривых
+            axs[2, 0].plot(fpr, tpr, 'b-', linewidth=2, label=f'ROC (AUC = {roc_auc:.3f})')
+            
+            # Добавляем PR curve для сравнения
+            precision, recall, _ = precision_recall_curve(real_values, predicted_values)
+            pr_auc = average_precision_score(real_values, predicted_values)
+            axs[2, 0].plot(recall, precision, 'r-', linewidth=2, label=f'PR (AUC = {pr_auc:.3f})')
+            
+            axs[2, 0].set_xlabel('Recall / True Positive Rate')
+            axs[2, 0].set_ylabel('Precision / True Positive Rate')
+            axs[2, 0].set_title(f'{title_prefix}: ROC vs PR Curves Comparison')
             axs[2, 0].legend()
             axs[2, 0].grid(True, alpha=0.3)
             axs[2, 0].set_xlim([0, 1])
@@ -393,23 +396,7 @@ class ModelDiagnostics:
         else:
             axs[2, 0].axis('off')
 
-        # PR-Curve для задач классификации
-        if self.task_type == 'classification':
-            precision, recall, _ = precision_recall_curve(real_values, predicted_values)
-            pr_auc = average_precision_score(real_values, predicted_values)
-            
-            axs[2, 1].plot(recall, precision, 'b-', linewidth=2, label=f'PR-Curve (AUC = {pr_auc:.3f})')
-            axs[2, 1].axhline(y=real_values.mean(), color='r', linestyle='--', 
-                             label=f'Random Classifier ({real_values.mean():.3f})')
-            axs[2, 1].set_xlabel('Recall')
-            axs[2, 1].set_ylabel('Precision')
-            axs[2, 1].set_title(f'{title_prefix}: Precision-Recall Curve')
-            axs[2, 1].legend()
-            axs[2, 1].grid(True, alpha=0.3)
-        else:
-            axs[2, 1].axis('off')
-
-        # Calibration Curve (Reliability Diagram) для задач классификации
+        # Calibration Curve (график №2)
         if self.task_type == 'classification':
             # Используем sklearn для построения калибровочной кривой
             fraction_of_positives, mean_predicted_value = calibration_curve(
@@ -417,81 +404,71 @@ class ModelDiagnostics:
             )
             
             # Идеальная калибровка (диагональ)
-            axs[3, 0].plot([0, 1], [0, 1], 'k--', label='Perfectly Calibrated', alpha=0.7)
+            axs[2, 1].plot([0, 1], [0, 1], 'k--', label='Perfectly Calibrated', alpha=0.7)
             
             # Калибровочная кривая модели
-            axs[3, 0].plot(mean_predicted_value, fraction_of_positives, 'bo-', 
+            axs[2, 1].plot(mean_predicted_value, fraction_of_positives, 'bo-', 
                           linewidth=2, markersize=8, label='Model Calibration')
             
-            axs[3, 0].set_xlabel('Mean Predicted Probability')
-            axs[3, 0].set_ylabel('Fraction of Positives')
-            axs[3, 0].set_title(f'{title_prefix}: Calibration Curve (Reliability Diagram)')
-            axs[3, 0].legend()
-            axs[3, 0].grid(True, alpha=0.3)
-            axs[3, 0].set_xlim([0, 1])
-            axs[3, 0].set_ylim([0, 1])
+            axs[2, 1].set_xlabel('Mean Predicted Probability')
+            axs[2, 1].set_ylabel('Fraction of Positives')
+            axs[2, 1].set_title(f'{title_prefix}: Calibration Curve (Reliability Diagram)')
+            axs[2, 1].legend()
+            axs[2, 1].grid(True, alpha=0.3)
+            axs[2, 1].set_xlim([0, 1])
+            axs[2, 1].set_ylim([0, 1])
+        else:
+            axs[2, 1].axis('off')
+
+        # Объединенный график: Distribution + Hosmer-Lemeshow (график №3)
+        if self.task_type == 'classification':
+            # Создаем subplot с двумя графиками
+            ax1 = axs[3, 0]  # Основной график
+            ax2 = ax1.twinx()  # Дополнительная ось Y
             
-            # Гистограмма распределения предсказанных вероятностей
-            axs[3, 1].hist(predicted_values, bins=20, alpha=0.7, color='skyblue', edgecolor='black')
-            axs[3, 1].set_xlabel('Predicted Probability')
-            axs[3, 1].set_ylabel('Frequency')
-            axs[3, 1].set_title(f'{title_prefix}: Distribution of Predicted Probabilities')
-            axs[3, 1].grid(True, alpha=0.3)
+            # Получаем данные для кривых Hosmer-Lemeshow
+            hl_data = self._calculate_hosmer_lemeshow_data(real_values, predicted_values, n_bins=10)
+            
+            # График 1: Гистограмма распределения предсказанных вероятностей
+            ax1.hist(predicted_values, bins=20, alpha=0.7, color='skyblue', edgecolor='black', label='Distribution')
+            ax1.set_xlabel('Predicted Probability')
+            ax1.set_ylabel('Frequency', color='skyblue')
+            ax1.tick_params(axis='y', labelcolor='skyblue')
+            
+            # График 2: Hosmer-Lemeshow - Predicted Probabilities
+            ax2.plot(hl_data['bin_numbers'], hl_data['mean_pred_proba'], 'bo-', 
+                    linewidth=2, markersize=8, label='Mean Predicted Probability')
+            
+            # График 3: Hosmer-Lemeshow - Empirical Probabilities
+            ax2.plot(hl_data['bin_numbers'], hl_data['empirical_proba'], 'ro-', 
+                    linewidth=2, markersize=8, label='Empirical Probability')
+            
+            ax2.set_ylabel('Probability', color='red')
+            ax2.tick_params(axis='y', labelcolor='red')
+            ax2.set_xticks(hl_data['bin_numbers'])
+            
+            ax1.set_title(f'{title_prefix}: Distribution + Hosmer-Lemeshow Analysis')
+            ax1.grid(True, alpha=0.3)
+            
+            # Объединяем легенды
+            lines1, labels1 = ax1.get_legend_handles_labels()
+            lines2, labels2 = ax2.get_legend_handles_labels()
+            ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper right')
         else:
             axs[3, 0].axis('off')
             axs[3, 1].axis('off')
 
-        # Кривые Hosmer-Lemeshow (Gain Chart) для задач классификации
+        # Отключаем строку 4 для классификации
         if self.task_type == 'classification':
-            # Получаем данные для кривых Hosmer-Lemeshow
-            hl_data = self._calculate_hosmer_lemeshow_data(real_values, predicted_values, n_bins=10)
-            
-            # График 1: Средняя предсказанная вероятность по бинам
-            axs[4, 0].plot(hl_data['bin_numbers'], hl_data['mean_pred_proba'], 'bo-', 
-                          linewidth=2, markersize=8, label='Mean Predicted Probability')
-            axs[4, 0].set_xlabel('Bin Number')
-            axs[4, 0].set_ylabel('Mean Predicted Probability')
-            axs[4, 0].set_title(f'{title_prefix}: Hosmer-Lemeshow - Predicted Probabilities')
-            axs[4, 0].legend()
-            axs[4, 0].grid(True, alpha=0.3)
-            axs[4, 0].set_xticks(hl_data['bin_numbers'])
-            
-            # График 2: Эмпирическая вероятность по бинам
-            axs[4, 1].plot(hl_data['bin_numbers'], hl_data['empirical_proba'], 'ro-', 
-                          linewidth=2, markersize=8, label='Empirical Probability')
-            axs[4, 1].set_xlabel('Bin Number')
-            axs[4, 1].set_ylabel('Empirical Probability')
-            axs[4, 1].set_title(f'{title_prefix}: Hosmer-Lemeshow - Empirical Probabilities')
-            axs[4, 1].legend()
-            axs[4, 1].grid(True, alpha=0.3)
-            axs[4, 1].set_xticks(hl_data['bin_numbers'])
+            axs[4, 0].axis('off')
+            axs[4, 1].axis('off')
         else:
             axs[4, 0].axis('off')
             axs[4, 1].axis('off')
 
-        # График сравнения ROC и PR кривых
+        # Отключаем строку 5 для классификации
         if self.task_type == 'classification':
-            # Вычисляем ROC curve
-            fpr, tpr, _ = roc_curve(real_values, predicted_values)
-            roc_auc = roc_auc_score(real_values, predicted_values)
-            
-            # График сравнения ROC и PR кривых
-            axs[5, 0].plot(fpr, tpr, 'b-', linewidth=2, label=f'ROC (AUC = {roc_auc:.3f})')
-            
-            # Добавляем PR curve для сравнения
-            precision, recall, _ = precision_recall_curve(real_values, predicted_values)
-            pr_auc = average_precision_score(real_values, predicted_values)
-            axs[5, 0].plot(recall, precision, 'r-', linewidth=2, label=f'PR (AUC = {pr_auc:.3f})')
-            
-            axs[5, 0].set_xlabel('Recall / True Positive Rate')
-            axs[5, 0].set_ylabel('Precision / True Positive Rate')
-            axs[5, 0].set_title(f'{title_prefix}: ROC vs PR Curves Comparison')
-            axs[5, 0].legend()
-            axs[5, 0].grid(True, alpha=0.3)
-            axs[5, 0].set_xlim([0, 1])
-            axs[5, 0].set_ylim([0, 1])
-            
-            # Отключаем правый график в последней строке
+            axs[5, 0].axis('off')
             axs[5, 1].axis('off')
         else:
             axs[5, 0].axis('off')
