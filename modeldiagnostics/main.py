@@ -7,8 +7,8 @@ from sklearn.metrics import (
     mean_squared_error, mean_absolute_error, r2_score,
     mean_absolute_percentage_error, max_error, roc_auc_score, accuracy_score,
     f1_score, precision_score, recall_score, matthews_corrcoef, average_precision_score,
-    precision_recall_curve, calibration_curve
-)
+    precision_recall_curve)
+from sklearn.calibration import calibration_curve
 from sklearn.model_selection import train_test_split
 from shap import TreeExplainer, summary_plot
 from scipy.stats import spearmanr
