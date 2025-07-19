@@ -7,7 +7,7 @@ from sklearn.metrics import (
     mean_squared_error, mean_absolute_error, r2_score,
     mean_absolute_percentage_error, max_error, roc_auc_score, accuracy_score,
     f1_score, precision_score, recall_score, matthews_corrcoef, average_precision_score,
-    precision_recall_curve
+    precision_recall_curve, calibration_curve
 )
 from sklearn.model_selection import train_test_split
 from shap import TreeExplainer, summary_plot
@@ -61,7 +61,96 @@ class ModelDiagnostics:
             return np.expm1(values)
         else:
             return values
+    
+    def _calculate_ece(self, y_true, y_pred_proba, n_bins=10):
+        """
+        Вычисление Expected Calibration Error (ECE)
         
+        Args:
+            y_true: истинные метки классов
+            y_pred_proba: предсказанные вероятности
+            n_bins: количество бинов для разбиения
+            
+        Returns:
+            float: значение ECE
+        """
+        # Разбиваем предсказания на бины
+        bin_boundaries = np.linspace(0, 1, n_bins + 1)
+        bin_lowers = bin_boundaries[:-1]
+        bin_uppers = bin_boundaries[1:]
+        
+        ece = 0.0
+        for bin_lower, bin_upper in zip(bin_lowers, bin_uppers):
+            # Находим индексы предсказаний в текущем бине
+            in_bin = np.logical_and(y_pred_proba > bin_lower, y_pred_proba <= bin_upper)
+            
+            if np.sum(in_bin) > 0:
+                # Средняя предсказанная вероятность в бине
+                mean_pred_prob = np.mean(y_pred_proba[in_bin])
+                # Доля истинных положительных результатов в бине
+                accuracy_in_bin = np.mean(y_true[in_bin])
+                # Количество образцов в бине
+                bin_size = np.sum(in_bin)
+                
+                # Добавляем вклад бина в ECE
+                ece += (bin_size / len(y_true)) * np.abs(mean_pred_prob - accuracy_in_bin)
+        
+                return ece
+    
+    def _calculate_hosmer_lemeshow_data(self, y_true, y_pred_proba, n_bins=10):
+        """
+        Вычисление данных для кривых Hosmer-Lemeshow (Gain Chart)
+        
+        Args:
+            y_true: истинные метки классов
+            y_pred_proba: предсказанные вероятности
+            n_bins: количество бинов для разбиения
+            
+        Returns:
+            dict: данные для построения графиков
+        """
+        # Сортируем объекты по возрастанию вероятности
+        sorted_indices = np.argsort(y_pred_proba)
+        sorted_proba = y_pred_proba[sorted_indices]
+        sorted_true = y_true[sorted_indices]
+        
+        # Разбиваем на равные бины
+        bin_size = len(sorted_proba) // n_bins
+        bin_boundaries = []
+        for i in range(n_bins):
+            start_idx = i * bin_size
+            end_idx = (i + 1) * bin_size if i < n_bins - 1 else len(sorted_proba)
+            bin_boundaries.append((start_idx, end_idx))
+        
+        # Вычисляем метрики для каждого бина
+        bin_numbers = []
+        mean_pred_proba = []
+        empirical_proba = []
+        bin_sizes = []
+        
+        for i, (start_idx, end_idx) in enumerate(bin_boundaries):
+            bin_proba = sorted_proba[start_idx:end_idx]
+            bin_true = sorted_true[start_idx:end_idx]
+            
+            # Средняя предсказанная вероятность
+            p_g = np.mean(bin_proba)
+            # Эмпирическая вероятность (доля положительных)
+            e_g = np.mean(bin_true)
+            # Размер бина
+            size = len(bin_proba)
+            
+            bin_numbers.append(i + 1)
+            mean_pred_proba.append(p_g)
+            empirical_proba.append(e_g)
+            bin_sizes.append(size)
+        
+        return {
+            'bin_numbers': bin_numbers,
+            'mean_pred_proba': mean_pred_proba,
+            'empirical_proba': empirical_proba,
+            'bin_sizes': bin_sizes
+        }
+    
     def compute_regression_metrics(self, real_values, predicted_values, ):
             metrics = {}
             metrics['mse'] = mean_squared_error(real_values, predicted_values)
@@ -119,10 +208,11 @@ class ModelDiagnostics:
                 'shift': predicted_labels.sum() / real_values.sum() if real_values.sum() > 0 else float('nan')
             }
 
-            # Добавляем AUC-ROC, PR-AUC и Gini, если есть вероятности
+            # Добавляем AUC-ROC, PR-AUC, Gini и ECE, если есть вероятности
             metrics['roc_auc'] = roc_auc_score(real_values, predicted_proba)
             metrics['pr_auc'] = average_precision_score(real_values, predicted_proba)
             metrics['gini'] = 2 * metrics['roc_auc'] - 1
+            metrics['ece'] = self._calculate_ece(real_values, predicted_proba)
 
             return metrics
     
@@ -178,7 +268,7 @@ class ModelDiagnostics:
         std_residuals = residuals / np.sqrt(mse * (1 - leverage))
         cooks_d = (std_residuals ** 2) / 2 * (leverage / (1 - leverage))
 
-        fig, axs = plt.subplots(3, 2, figsize=(16, 14))
+        fig, axs = plt.subplots(5, 2, figsize=(16, 22))
 
         # Residuals vs Fitted
         sns.scatterplot(x=fitted, y=residuals, ax=axs[0, 0], alpha=0.6)
@@ -268,6 +358,66 @@ class ModelDiagnostics:
             axs[2, 1].grid(True, alpha=0.3)
         else:
             axs[2, 1].axis('off')
+
+        # Calibration Curve (Reliability Diagram) для задач классификации
+        if self.task_type == 'classification':
+            # Используем sklearn для построения калибровочной кривой
+            fraction_of_positives, mean_predicted_value = calibration_curve(
+                real_values, predicted_values, n_bins=10, strategy='uniform'
+            )
+            
+            # Идеальная калибровка (диагональ)
+            axs[3, 0].plot([0, 1], [0, 1], 'k--', label='Perfectly Calibrated', alpha=0.7)
+            
+            # Калибровочная кривая модели
+            axs[3, 0].plot(mean_predicted_value, fraction_of_positives, 'bo-', 
+                          linewidth=2, markersize=8, label='Model Calibration')
+            
+            axs[3, 0].set_xlabel('Mean Predicted Probability')
+            axs[3, 0].set_ylabel('Fraction of Positives')
+            axs[3, 0].set_title(f'{title_prefix}: Calibration Curve (Reliability Diagram)')
+            axs[3, 0].legend()
+            axs[3, 0].grid(True, alpha=0.3)
+            axs[3, 0].set_xlim([0, 1])
+            axs[3, 0].set_ylim([0, 1])
+            
+            # Гистограмма распределения предсказанных вероятностей
+            axs[3, 1].hist(predicted_values, bins=20, alpha=0.7, color='skyblue', edgecolor='black')
+            axs[3, 1].set_xlabel('Predicted Probability')
+            axs[3, 1].set_ylabel('Frequency')
+            axs[3, 1].set_title(f'{title_prefix}: Distribution of Predicted Probabilities')
+            axs[3, 1].grid(True, alpha=0.3)
+        else:
+            axs[3, 0].axis('off')
+            axs[3, 1].axis('off')
+
+        # Кривые Hosmer-Lemeshow (Gain Chart) для задач классификации
+        if self.task_type == 'classification':
+            # Получаем данные для кривых Hosmer-Lemeshow
+            hl_data = self._calculate_hosmer_lemeshow_data(real_values, predicted_values, n_bins=10)
+            
+            # График 1: Средняя предсказанная вероятность по бинам
+            axs[4, 0].plot(hl_data['bin_numbers'], hl_data['mean_pred_proba'], 'bo-', 
+                          linewidth=2, markersize=8, label='Mean Predicted Probability')
+            axs[4, 0].set_xlabel('Bin Number')
+            axs[4, 0].set_ylabel('Mean Predicted Probability')
+            axs[4, 0].set_title(f'{title_prefix}: Hosmer-Lemeshow - Predicted Probabilities')
+            axs[4, 0].legend()
+            axs[4, 0].grid(True, alpha=0.3)
+            axs[4, 0].set_xticks(hl_data['bin_numbers'])
+            
+            # График 2: Эмпирическая вероятность по бинам
+            axs[4, 1].plot(hl_data['bin_numbers'], hl_data['empirical_proba'], 'ro-', 
+                          linewidth=2, markersize=8, label='Empirical Probability')
+            axs[4, 1].set_xlabel('Bin Number')
+            axs[4, 1].set_ylabel('Empirical Probability')
+            axs[4, 1].set_title(f'{title_prefix}: Hosmer-Lemeshow - Empirical Probabilities')
+            axs[4, 1].legend()
+            axs[4, 1].grid(True, alpha=0.3)
+            axs[4, 1].set_xticks(hl_data['bin_numbers'])
+        else:
+            axs[4, 0].axis('off')
+            axs[4, 1].axis('off')
 
         plt.tight_layout()
         plt.suptitle(f'{title_prefix} Diagnostic Plots', y=1.02)
