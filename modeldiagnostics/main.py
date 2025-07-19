@@ -479,20 +479,24 @@ class ModelDiagnostics:
         plt.subplots_adjust(bottom=0.2)  # Добавляем место для таблицы
         plt.show()
 
-        # === Вывод таблицы с аномальными точками (ограничено 10 строками) ===
-        if outlier_mask.any():
-            anomaly_indices = np.where(outlier_mask)[0]
-            anomaly_data = pd.DataFrame({
-                'Index': anomaly_indices,
-                'Leverage': leverage[outlier_mask],
-                'Residual': residuals[outlier_mask],
-                'Cook\'s D': cooks_d[outlier_mask]
-            }).sort_values(by='Cook\'s D', ascending=False).head(10)
-            print(f"\n=== Таблица аномальных точек (Cook's D > {threshold_cooks_d:.4f}), топ-10 ===")
-            print(anomaly_data.to_string(index=False))
-            return anomaly_data
+        # === Вывод таблицы с аномальными точками (только для регрессии) ===
+        if self.task_type == 'regression':
+            if outlier_mask.any():
+                anomaly_indices = np.where(outlier_mask)[0]
+                anomaly_data = pd.DataFrame({
+                    'Index': anomaly_indices,
+                    'Leverage': leverage[outlier_mask],
+                    'Residual': residuals[outlier_mask],
+                    'Cook\'s D': cooks_d[outlier_mask]
+                }).sort_values(by='Cook\'s D', ascending=False).head(10)
+                print(f"\n=== Таблица аномальных точек (Cook's D > {threshold_cooks_d:.4f}), топ-10 ===")
+                print(anomaly_data.to_string(index=False))
+                return anomaly_data
+            else:
+                print(f"\n=== Аномальных точек не найдено (Cook's D > {threshold_cooks_d:.4f}) ===")
+                return pd.DataFrame()
         else:
-            print(f"\n=== Аномальных точек не найдено (Cook's D > {threshold_cooks_d:.4f}) ===")
+            # Для классификации возвращаем пустой DataFrame
             return pd.DataFrame()
 
     def test_normality_kolmogorov(self, real_values, predicted_values, verbose=True):
