@@ -6,7 +6,8 @@ from catboost import CatBoostClassifier
 from sklearn.metrics import (
     mean_squared_error, mean_absolute_error, r2_score,
     mean_absolute_percentage_error, max_error, roc_auc_score, accuracy_score,
-    f1_score, precision_score, recall_score, matthews_corrcoef
+    f1_score, precision_score, recall_score, matthews_corrcoef, average_precision_score,
+    precision_recall_curve
 )
 from sklearn.model_selection import train_test_split
 from shap import TreeExplainer, summary_plot
@@ -118,8 +119,9 @@ class ModelDiagnostics:
                 'shift': predicted_labels.sum() / real_values.sum() if real_values.sum() > 0 else float('nan')
             }
 
-            # Добавляем AUC-ROC и Gini, если есть вероятности
+            # Добавляем AUC-ROC, PR-AUC и Gini, если есть вероятности
             metrics['roc_auc'] = roc_auc_score(real_values, predicted_proba)
+            metrics['pr_auc'] = average_precision_score(real_values, predicted_proba)
             metrics['gini'] = 2 * metrics['roc_auc'] - 1
 
             return metrics
@@ -251,7 +253,21 @@ class ModelDiagnostics:
         axs[2, 0].set_xlabel('Residual Value')
         axs[2, 0].set_ylabel('Density')
 
-        axs[2, 1].axis('off')
+        # PR-Curve для задач классификации
+        if self.task_type == 'classification':
+            precision, recall, _ = precision_recall_curve(real_values, predicted_values)
+            pr_auc = average_precision_score(real_values, predicted_values)
+            
+            axs[2, 1].plot(recall, precision, 'b-', linewidth=2, label=f'PR-Curve (AUC = {pr_auc:.3f})')
+            axs[2, 1].axhline(y=real_values.mean(), color='r', linestyle='--', 
+                             label=f'Random Classifier ({real_values.mean():.3f})')
+            axs[2, 1].set_xlabel('Recall')
+            axs[2, 1].set_ylabel('Precision')
+            axs[2, 1].set_title(f'{title_prefix}: Precision-Recall Curve')
+            axs[2, 1].legend()
+            axs[2, 1].grid(True, alpha=0.3)
+        else:
+            axs[2, 1].axis('off')
 
         plt.tight_layout()
         plt.suptitle(f'{title_prefix} Diagnostic Plots', y=1.02)
