@@ -131,6 +131,10 @@ class ModelDiagnostics:
         Returns:
             dict: данные для построения графиков
         """
+        # Преобразуем в numpy arrays для безопасного индексирования
+        y_true = np.array(y_true)
+        y_pred_proba = np.array(y_pred_proba)
+        
         # Сортируем объекты по возрастанию вероятности
         sorted_indices = np.argsort(y_pred_proba)
         sorted_proba = y_pred_proba[sorted_indices]
