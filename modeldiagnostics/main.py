@@ -422,38 +422,29 @@ class ModelDiagnostics:
 
         # Объединенный график: Distribution + Hosmer-Lemeshow (график №3)
         if self.task_type == 'classification':
-            # Создаем subplot с двумя графиками
-            ax1 = axs[3, 0]  # Основной график
-            ax2 = ax1.twinx()  # Дополнительная ось Y
-            
             # Получаем данные для кривых Hosmer-Lemeshow
             hl_data = self._calculate_hosmer_lemeshow_data(real_values, predicted_values, n_bins=10)
             
-            # График 1: Гистограмма распределения предсказанных вероятностей
-            ax1.hist(predicted_values, bins=20, alpha=0.7, color='skyblue', edgecolor='black', label='Distribution')
-            ax1.set_xlabel('Predicted Probability')
-            ax1.set_ylabel('Frequency', color='skyblue')
-            ax1.tick_params(axis='y', labelcolor='skyblue')
+            # Создаем график как на картинке
+            ax = axs[3, 0]
             
-            # График 2: Hosmer-Lemeshow - Predicted Probabilities
-            ax2.plot(hl_data['bin_numbers'], hl_data['mean_pred_proba'], 'bo-', 
-                    linewidth=2, markersize=8, label='Mean Predicted Probability')
+            # График 1: Столбцы - доля наблюдаемых событий (эмпирическая вероятность)
+            bars = ax.bar(hl_data['bin_numbers'], hl_data['empirical_proba'], 
+                         alpha=0.7, color='skyblue', edgecolor='black', 
+                         label='Доля наблюдаемых событий')
             
-            # График 3: Hosmer-Lemeshow - Empirical Probabilities
-            ax2.plot(hl_data['bin_numbers'], hl_data['empirical_proba'], 'ro-', 
-                    linewidth=2, markersize=8, label='Empirical Probability')
+            # График 2: Линия - средние предсказанные вероятности
+            ax.plot(hl_data['bin_numbers'], hl_data['mean_pred_proba'], 
+                   'o-', color='orange', linewidth=2, markersize=8, 
+                   label='Средние предсказанные вероятности')
             
-            ax2.set_ylabel('Probability', color='red')
-            ax2.tick_params(axis='y', labelcolor='red')
-            ax2.set_xticks(hl_data['bin_numbers'])
-            
-            ax1.set_title(f'{title_prefix}: Distribution + Hosmer-Lemeshow Analysis')
-            ax1.grid(True, alpha=0.3)
-            
-            # Объединяем легенды
-            lines1, labels1 = ax1.get_legend_handles_labels()
-            lines2, labels2 = ax2.get_legend_handles_labels()
-            ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper right')
+            ax.set_xlabel('Бин (группа)')
+            ax.set_ylabel('Доля / Средняя вероятность')
+            ax.set_title(f'{title_prefix}: Доля наблюдаемых событий и средние предсказанные вероятности по бинам')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            ax.set_xticks(hl_data['bin_numbers'])
+            ax.set_ylim([0, 1])
         else:
             axs[3, 0].axis('off')
             axs[3, 1].axis('off')
