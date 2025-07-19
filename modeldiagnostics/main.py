@@ -779,21 +779,16 @@ class ModelDiagnostics:
         print("=== Диагностические графики ===")
         if self.task_type == 'regression':
             self.diagnostics_plots(self.y_train, self.model.predict(self.X_train[self.features]), title_prefix="Train")
-        elif self.task_type == 'classification':
-            pred_proba = self.model.predict_proba(self.X_train[self.features])[:, 1]
-            self.diagnostics_plots(self.y_train, pred_proba, title_prefix="Train")
-        if self.task_type == 'regression':
             self.diagnostics_plots(self.y_test, self.model.predict(self.X_test[self.features]), title_prefix="Test")
-        elif self.task_type == 'classification':
-            pred_proba = self.model.predict_proba(self.X_test[self.features])[:, 1]
-            self.diagnostics_plots(self.y_test, pred_proba, title_prefix="Test")
-        # Тесты только для задач регрессии
-        if self.task_type == 'regression':
             print("=== Тест Колмогорова-Смирнова на нормальность остатков ===")
             self.test_normality_kolmogorov(self.y_test, self.model.predict(self.X_test[self.features]))
             print("=== Тест на гетероскедастичность ===")
             self.test_heteroscedasticity(self.y_test, self.model.predict(self.X_test[self.features]))
-        
+        elif self.task_type == 'classification':
+            pred_proba_train = self.model.predict_proba(self.X_train[self.features])[:, 1]
+            self.diagnostics_plots(self.y_train, pred_proba_train, title_prefix="Train")
+            pred_proba_test = self.model.predict_proba(self.X_test[self.features])[:, 1]
+            self.diagnostics_plots(self.y_test, pred_proba_test, title_prefix="Test")
         print("=== Adversarial Validation ===")
         self.adversarial_validation()
         print("=== Анализ топ-ошибок ===")
