@@ -294,7 +294,7 @@ class ModelDiagnostics:
         fitted = predicted_values
         
         # Создаем сетку 6x2
-        fig, axs = plt.subplots(6, 2, figsize=(16, 26))
+        fig, axs = plt.subplots(3, 2, figsize=(16, 15))
         
         # Вычисляем статистики для остатков
         n = len(real_values)
