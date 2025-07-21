@@ -288,13 +288,13 @@ class ModelDiagnostics:
             raise ValueError("task_type должен быть 'regression' или 'classification'")
 
     def _plot_regression_diagnostics(self, real_values, predicted_values, title_prefix):
-        """Пайплайн для построения графиков регрессии"""
+        """Пайплайн для построения графиков регрессии (компактная сетка 3x2)"""
         title_prefix = title_prefix or "Regression"
         residuals = real_values - predicted_values
         fitted = predicted_values
         
-        # Создаем сетку 6x2
-        fig, axs = plt.subplots(3, 2, figsize=(16, 15))
+        # Создаем компактную сетку 3x2
+        fig, axs = plt.subplots(3, 2, figsize=(16, 13))
         
         # Вычисляем статистики для остатков
         n = len(real_values)
@@ -327,13 +327,9 @@ class ModelDiagnostics:
         threshold_cooks_d = 4 / n
         outlier_mask = cooks_d > threshold_cooks_d
         non_outlier_mask = ~outlier_mask
-        
-        # Преобразуем в numpy.array для безопасного доступа
         residuals_np = np.array(residuals)
         leverage_np = np.array(leverage)
         cooks_d_np = np.array(cooks_d)
-        
-        # Обычные точки
         sns.scatterplot(
             x=leverage_np[non_outlier_mask], 
             y=residuals_np[non_outlier_mask],
@@ -345,8 +341,6 @@ class ModelDiagnostics:
             legend='brief',
             ax=axs[1, 1]
         )
-        
-        # Выбросы
         if outlier_mask.any():
             sns.scatterplot(
                 x=leverage_np[outlier_mask],
@@ -359,13 +353,10 @@ class ModelDiagnostics:
                 legend=False,
                 ax=axs[1, 1]
             )
-        
         axs[1, 1].set_title(f'{title_prefix}: Residuals vs Leverage\n(Size ~ Cook\'s Distance, outliers in red)\n(Threshold: Cook\'s D > 4/n = {threshold_cooks_d:.4f})')
         axs[1, 1].set_xlabel('Leverage')
         axs[1, 1].set_ylabel('Residuals')
         axs[1, 1].axhline(y=0, color='r', linestyle='--')
-        
-        # Легенда для выбросов
         if outlier_mask.any():
             axs[1, 1].scatter([], [], c='red', s=100, label=f'Outliers (Cook\'s D > {threshold_cooks_d:.2f})')
         axs[1, 1].scatter([], [], c='green', s=100, alpha=0.5, label='Normal')
@@ -381,15 +372,11 @@ class ModelDiagnostics:
         axs[2, 0].set_xlabel('Residual Value')
         axs[2, 0].set_ylabel('Density')
         
-        # Отключаем остальные графики для регрессии
-        for i in range(2, 6):
-            for j in range(2):
-                axs[i, j].axis('off')
+        # 6. Отключаем последний график [2, 1]
+        axs[2, 1].axis('off')
         
-        # Настройка макета
         plt.tight_layout()
         plt.suptitle(f'{title_prefix} Diagnostic Plots', y=1.02)
-        plt.subplots_adjust(bottom=0.2)
         plt.show()
         
         # Возвращаем таблицу аномальных точек
