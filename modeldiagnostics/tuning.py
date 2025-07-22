@@ -231,15 +231,14 @@ class TuningHyperparameters:
                 trial_metrics = self.trials_info[best_key]
                 for key, value in trial_metrics.items():
                     if value is not None and not (isinstance(value, float) and math.isnan(value)):
-                        # Добавить суффикс к имени метрики
-                        if key.endswith('_train'):
-                            mlflow.log_metric(f"{key}_train", value)
-                        elif key.endswith('_valid'):
-                            mlflow.log_metric(f"{key}_valid", value)
-                        elif key.endswith('_test'):
-                            mlflow.log_metric(f"{key}_test", value)
-                        else:
+                        # Добавлять суффикс в зависимости от split_type, если его нет
+                        if key.endswith('_train') or key.endswith('_valid') or key.endswith('_test'):
                             mlflow.log_metric(key, value)
+                        else:
+                            if self.split_type == "custom_dates":
+                                mlflow.log_metric(f"{key}_test", value)
+                            else:
+                                mlflow.log_metric(f"{key}_valid", value)
             else:
                 print('No trials_info to log!')
             print(f"Best trial: {best_trial}, metrics: {self.trials_info[best_trial]}")
