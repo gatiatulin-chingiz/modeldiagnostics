@@ -9,7 +9,7 @@ from sklearn.model_selection import TimeSeriesSplit, KFold
 
 class CatBoostTuner:
     def __init__(self, X_train, y_train, X_test, y_test, summary, mvp, experiment_name,
-                 run_name="CatboostClassifier", n_trials=100, cv=5, random_seed=42, tags=None):
+                 run_name="CatboostClassifier", n_trials=100, cv=5, random_seed=42, tags=None, comment=None):
         self.X_train = X_train
         self.y_train = y_train
         self.X_test = X_test
@@ -21,6 +21,7 @@ class CatBoostTuner:
         self.n_trials = n_trials
         self.cv = cv
         self.random_seed = random_seed
+        self.comment = comment
         self.tags = tags or {}
         self.trials_info = {}
         self._prepare_tags()
@@ -30,8 +31,7 @@ class CatBoostTuner:
     def _prepare_tags(self):
         self.tags.update({
             'datetime': str(datetime.datetime.now()),
-            'project': 'claim_probability',
-            'optimizer_engine': 'optuna',
+            'comment': self.comment,
             'model': 'catboost',
             'features': str(self.summary),
         })
@@ -150,7 +150,9 @@ class CatBoostTuner:
 # from tuning import CatBoostTuner
 # tuner = CatBoostTuner(
 #     X_train, y_train, X_test, y_test,
-#     summary=summary, mvp=mvp,
+#     summary=summary,
+#     mvp=mvp,
+#     comment='claim_probability',te
 #     experiment_name="claim_probability_2",
 #     run_name="CatboostClassifier",
 #     n_trials=100,
