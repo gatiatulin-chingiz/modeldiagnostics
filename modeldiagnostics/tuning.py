@@ -212,9 +212,9 @@ class TuningHyperparameters:
                     if v is not None and not (isinstance(v, float) and math.isnan(v)):
                         mlflow.log_metric(f"{k}_test", v)
             self.trials_info[trial.number] = {
-                'train': train_metrics,
-                'valid': valid_metrics,
-                'test': test_metrics
+                'train': train_metrics if 'train_metrics' in locals() else None,
+                'valid': valid_metrics if 'valid_metrics' in locals() else None,
+                'test': test_metrics if 'test_metrics' in locals() else None
             }
             self.tags['datetime'] = str(datetime.datetime.now())
             mlflow.set_tags(tags=self.tags)
