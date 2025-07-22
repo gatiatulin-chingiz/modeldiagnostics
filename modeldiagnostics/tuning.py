@@ -7,6 +7,7 @@ from catboost import CatBoostClassifier, Pool  # pip install catboost
 from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score
 from sklearn.model_selection import TimeSeriesSplit, KFold
 import pandas as pd
+import math
 
 class CatBoostTuner:
     def __init__(self, df, features, mvp, experiment_name,
@@ -227,7 +228,8 @@ class CatBoostTuner:
             self.trials_info[trial.number] = trial_metrics
             mlflow.log_params(params)
             for k, v in trial_metrics.items():
-                mlflow.log_metric(k, v)
+                if v is not None and not (isinstance(v, float) and math.isnan(v)):
+                    mlflow.log_metric(k, v)
             self.tags['datetime'] = str(datetime.datetime.now())
             mlflow.set_tags(tags=self.tags)
             # Для timeseries и kfold возвращаем валидационную метрику, для custom_dates — тестовую
