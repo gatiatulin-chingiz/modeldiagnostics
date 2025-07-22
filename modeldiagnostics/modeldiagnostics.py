@@ -236,7 +236,7 @@ class ModelDiagnostics:
 
             return metrics
     
-    def compute_metrics(self, print_metrics=True):
+    def compute_metrics(self, print_metrics=False):
         if self.task_type == 'regression':
             pred_train = self.model.predict(self.X_train[self.features])
             pred_test = self.model.predict(self.X_test[self.features])
@@ -785,7 +785,7 @@ class ModelDiagnostics:
     
     def run_full_diagnostics(self):
         print("=== Вычисление метрик ===")
-        metrics_train, metrics_test = self.compute_metrics()
+        metrics_train, metrics_test = self.compute_metrics(print_metrics=True)
         print()
         print("=== Диагностические графики ===")
         if self.task_type == 'regression':
