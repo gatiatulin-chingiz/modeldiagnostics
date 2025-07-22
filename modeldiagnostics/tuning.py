@@ -230,9 +230,10 @@ class TuningHyperparameters:
             if self.trials_info:
                 # Найти трейл с максимальной метрикой (например, roc_auc/r2)
                 def get_metric(trial_metrics):
-                    return trial_metrics.get(self.optimize_metric, float('-inf'))
+                    return trial_metrics.get(self.optimize_metric, float('-inf')) if isinstance(trial_metrics, dict) else float('-inf')
                 best_key = max(self.trials_info, key=lambda k: get_metric(self.trials_info[k]))
                 trial_metrics = self.trials_info[best_key]
+                # Логировать метрики строго в порядке train, valid, test
                 for stage in ['train', 'valid', 'test']:
                     metrics = trial_metrics.get(stage)
                     if metrics:
