@@ -236,7 +236,7 @@ class ModelDiagnostics:
 
             return metrics
     
-    def compute_metrics(self):
+    def compute_metrics(self, print_metrics=True):
         if self.task_type == 'regression':
             pred_train = self.model.predict(self.X_train[self.features])
             pred_test = self.model.predict(self.X_test[self.features])
@@ -255,11 +255,11 @@ class ModelDiagnostics:
         else:
             raise ValueError("task_type должен быть 'regression' или 'classification'")
 
-        # === Вывод метрик поочередно train/test ===
-        for metric_name in self.metrics_train:
-            print(f"{metric_name}_train: {self.metrics_train[metric_name]}")
-            print(f"{metric_name}_test: {self.metrics_test[metric_name]}")
-            print("-" * 50)
+        if print_metrics:
+            for metric_name in self.metrics_train:
+                print(f"{metric_name}_train: {self.metrics_train[metric_name]}")
+                print(f"{metric_name}_test: {self.metrics_test[metric_name]}")
+                print("-" * 50)
         return self.metrics_train, self.metrics_test
     
     def diagnostics_plots(self, real_values, predicted_values, title_prefix=""):
