@@ -3,7 +3,7 @@ import mlflow  # pip install mlflow
 import optuna  # pip install optuna
 import numpy as np  # pip install numpy
 import datetime
-from catboost import CatBoostClassifier, Pool  # pip install catboost
+from catboost import CatBoostClassifier, CatBoostRegressor, Pool  # pip install catboost
 from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score
 from sklearn.model_selection import TimeSeriesSplit, KFold
 import pandas as pd
@@ -12,7 +12,7 @@ import math
 class CatBoostTuner:
     def __init__(self, df, features, mvp, experiment_name,
                  run_name="CatboostClassifier", n_trials=100, cv=5, random_seed=42, tags=None, comment=None,
-                 split_type="kfold", sort_col=None, date_col=None, train_start=None, train_end=None, test_start=None, test_end=None, target_col="target"):
+                 split_type="kfold", sort_col=None, date_col=None, train_start=None, train_end=None, test_start=None, test_end=None, target_col="target", task_type="classification"):
         self.df = df.copy()
         self.features = features
         self.mvp = mvp
@@ -32,6 +32,7 @@ class CatBoostTuner:
         self.test_start = test_start
         self.test_end = test_end
         self.target_col = target_col
+        self.task_type = task_type
         self._prepare_tags()
         self.experiment_id = self.get_or_create_experiment(self.experiment_name)
         mlflow.set_experiment(experiment_id=self.experiment_id)
@@ -108,21 +109,29 @@ class CatBoostTuner:
     def objective(self, trial):
         print(f'Trial № {str(trial.number)}')
         with mlflow.start_run(run_name=f'Trial № {trial.number}', nested=True):
-            params = {
-                'iterations': trial.suggest_int('iterations', 50, 500),
-                'grow_policy': trial.suggest_categorical('grow_policy', ['SymmetricTree', 'Depthwise']),
-                'l2_leaf_reg': trial.suggest_int('l2_leaf_reg', 1, 10, step=1),
-                'depth': trial.suggest_int('depth', 2, 6),
-                'auto_class_weights': trial.suggest_categorical('auto_class_weights', ['Balanced', None]),
-                'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.5),
-                'random_state': self.random_seed,
-            }
-            metrics = {k: [] for k in [
-                'precision_train', 'recall_train', 'f1_train', 'roc_auc_train', 'gini_train',
-                'precision_valid', 'recall_valid', 'f1_valid', 'roc_auc_valid', 'gini_valid',
-                'precision_test', 'recall_test', 'f1_test', 'roc_auc_test', 'gini_test',
-            ]}
+            if self.task_type == "classification":
+                params = {
+                    'iterations': trial.suggest_int('iterations', 50, 500),
+                    'grow_policy': trial.suggest_categorical('grow_policy', ['SymmetricTree', 'Depthwise']),
+                    'l2_leaf_reg': trial.suggest_int('l2_leaf_reg', 1, 10, step=1),
+                    'depth': trial.suggest_int('depth', 2, 6),
+                    'auto_class_weights': trial.suggest_categorical('auto_class_weights', ['Balanced', None]),
+                    'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.5),
+                    'random_state': self.random_seed,
+                }
+                ModelClass = CatBoostClassifier
+            else:
+                params = {
+                    'iterations': trial.suggest_int('iterations', 50, 500),
+                    'grow_policy': trial.suggest_categorical('grow_policy', ['SymmetricTree', 'Depthwise']),
+                    'l2_leaf_reg': trial.suggest_int('l2_leaf_reg', 1, 10, step=1),
+                    'depth': trial.suggest_int('depth', 2, 6),
+                    'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.5),
+                    'random_state': self.random_seed,
+                }
+                ModelClass = CatBoostRegressor
             cat_features = self._get_cat_features()
+            metrics_list = []
             if self.split_type == "timeseries":
                 splitter = TimeSeriesSplit(n_splits=self.cv)
                 for fold, (train_index, valid_index) in enumerate(splitter.split(self.X)):
@@ -135,25 +144,16 @@ class CatBoostTuner:
                             _X_train[col] = _X_train[col].astype(str)
                             _X_valid[col] = _X_valid[col].astype(str)
                         pool = Pool(_X_train, _y_train, cat_features=cat_features, feature_names=list(_X_train.columns))
-                        cb_model = CatBoostClassifier(**params, verbose=0)
-                        cb_model.fit(pool)
-                        # Train
-                        predict_train = cb_model.predict(_X_train)
-                        proba_train = cb_model.predict_proba(_X_train)[:, 1]
-                        metrics['precision_train'].append(precision_score(_y_train, predict_train))
-                        metrics['recall_train'].append(recall_score(_y_train, predict_train))
-                        metrics['f1_train'].append(f1_score(_y_train, predict_train))
-                        metrics['roc_auc_train'].append(roc_auc_score(_y_train, proba_train))
-                        metrics['gini_train'].append(self.Gini(_y_train, proba_train))
-                        # Valid
-                        predict_valid = cb_model.predict(_X_valid)
-                        proba_valid = cb_model.predict_proba(_X_valid)[:, 1]
-                        metrics['precision_valid'].append(precision_score(_y_valid, predict_valid))
-                        metrics['recall_valid'].append(recall_score(_y_valid, predict_valid))
-                        metrics['f1_valid'].append(f1_score(_y_valid, predict_valid))
-                        metrics['roc_auc_valid'].append(roc_auc_score(_y_valid, proba_valid))
-                        metrics['gini_valid'].append(self.Gini(_y_valid, proba_valid))
-                # Тест не используется
+                        model = ModelClass(**params, verbose=0)
+                        model.fit(pool)
+                        # Используем ModelDiagnostics
+                        from modeldiagnostics.modeldiagnostics import ModelDiagnostics
+                        diag = ModelDiagnostics(_X_train, _y_train, _X_valid, _y_valid, model, features=self.features, cat_features=cat_features, task_type=self.task_type)
+                        train_metrics, valid_metrics = diag.compute_metrics()
+                        metrics_list.append((train_metrics, valid_metrics))
+                # Среднее по фолдам
+                avg_valid_metric = np.mean([m[1]["roc_auc"] if self.task_type=="classification" else m[1]["r2"] for m in metrics_list])
+                trial_metrics = metrics_list[-1][1]  # метрики последнего фолда для логирования
             elif self.split_type == "kfold":
                 splitter = KFold(n_splits=self.cv, shuffle=True, random_state=self.random_seed)
                 for fold, (train_index, valid_index) in enumerate(splitter.split(self.X_train)):
@@ -167,34 +167,18 @@ class CatBoostTuner:
                             _X_valid[col] = _X_valid[col].astype(str)
                         self.X_test[cat_features] = self.X_test[cat_features].astype(str)
                         pool = Pool(_X_train, _y_train, cat_features=cat_features, feature_names=list(_X_train.columns))
-                        cb_model = CatBoostClassifier(**params, verbose=0)
-                        cb_model.fit(pool)
-                        # Train
-                        predict_train = cb_model.predict(_X_train)
-                        proba_train = cb_model.predict_proba(_X_train)[:, 1]
-                        metrics['precision_train'].append(precision_score(_y_train, predict_train))
-                        metrics['recall_train'].append(recall_score(_y_train, predict_train))
-                        metrics['f1_train'].append(f1_score(_y_train, predict_train))
-                        metrics['roc_auc_train'].append(roc_auc_score(_y_train, proba_train))
-                        metrics['gini_train'].append(self.Gini(_y_train, proba_train))
-                        # Valid
-                        predict_valid = cb_model.predict(_X_valid)
-                        proba_valid = cb_model.predict_proba(_X_valid)[:, 1]
-                        metrics['precision_valid'].append(precision_score(_y_valid, predict_valid))
-                        metrics['recall_valid'].append(recall_score(_y_valid, predict_valid))
-                        metrics['f1_valid'].append(f1_score(_y_valid, predict_valid))
-                        metrics['roc_auc_valid'].append(roc_auc_score(_y_valid, proba_valid))
-                        metrics['gini_valid'].append(self.Gini(_y_valid, proba_valid))
-                        # Test
-                        predict_test = cb_model.predict(self.X_test)
-                        proba_test = cb_model.predict_proba(self.X_test)[:, 1]
-                        metrics['precision_test'].append(precision_score(self.y_test, predict_test))
-                        metrics['recall_test'].append(recall_score(self.y_test, predict_test))
-                        metrics['f1_test'].append(f1_score(self.y_test, predict_test))
-                        metrics['roc_auc_test'].append(roc_auc_score(self.y_test, proba_test))
-                        metrics['gini_test'].append(self.Gini(self.y_test, proba_test))
+                        model = ModelClass(**params, verbose=0)
+                        model.fit(pool)
+                        from modeldiagnostics.modeldiagnostics import ModelDiagnostics
+                        diag = ModelDiagnostics(_X_train, _y_train, _X_valid, _y_valid, model, features=self.features, cat_features=cat_features, task_type=self.task_type)
+                        train_metrics, valid_metrics = diag.compute_metrics()
+                        # Тест
+                        diag_test = ModelDiagnostics(_X_train, _y_train, self.X_test, self.y_test, model, features=self.features, cat_features=cat_features, task_type=self.task_type)
+                        _, test_metrics = diag_test.compute_metrics()
+                        metrics_list.append((train_metrics, valid_metrics, test_metrics))
+                avg_valid_metric = np.mean([m[1]["roc_auc"] if self.task_type=="classification" else m[1]["r2"] for m in metrics_list])
+                trial_metrics = metrics_list[-1][1]  # метрики последнего фолда для логирования
             elif self.split_type == "custom_dates":
-                # Только train и test, без кроссвалидации
                 _X_train = self.X_train.copy()
                 _y_train = self.y_train
                 _X_test = self.X_test.copy()
@@ -203,40 +187,22 @@ class CatBoostTuner:
                     _X_train[col] = _X_train[col].astype(str)
                     _X_test[col] = _X_test[col].astype(str)
                 pool = Pool(_X_train, _y_train, cat_features=cat_features, feature_names=list(_X_train.columns))
-                cb_model = CatBoostClassifier(**params, verbose=0)
-                cb_model.fit(pool)
-                # Train
-                predict_train = cb_model.predict(_X_train)
-                proba_train = cb_model.predict_proba(_X_train)[:, 1]
-                metrics['precision_train'].append(precision_score(_y_train, predict_train))
-                metrics['recall_train'].append(recall_score(_y_train, predict_train))
-                metrics['f1_train'].append(f1_score(_y_train, predict_train))
-                metrics['roc_auc_train'].append(roc_auc_score(_y_train, proba_train))
-                metrics['gini_train'].append(self.Gini(_y_train, proba_train))
-                # Test
-                predict_test = cb_model.predict(_X_test)
-                proba_test = cb_model.predict_proba(_X_test)[:, 1]
-                metrics['precision_test'].append(precision_score(_y_test, predict_test))
-                metrics['recall_test'].append(recall_score(_y_test, predict_test))
-                metrics['f1_test'].append(f1_score(_y_test, predict_test))
-                metrics['roc_auc_test'].append(roc_auc_score(_y_test, proba_test))
-                metrics['gini_test'].append(self.Gini(_y_test, proba_test))
+                model = ModelClass(**params, verbose=0)
+                model.fit(pool)
+                from modeldiagnostics.modeldiagnostics import ModelDiagnostics
+                diag = ModelDiagnostics(_X_train, _y_train, _X_test, _y_test, model, features=self.features, cat_features=cat_features, task_type=self.task_type)
+                train_metrics, test_metrics = diag.compute_metrics()
+                avg_valid_metric = test_metrics["roc_auc"] if self.task_type=="classification" else test_metrics["r2"]
+                trial_metrics = test_metrics
             else:
                 raise ValueError(f"Unknown split_type: {self.split_type}")
-            # Средние значения по фолдам (или просто значения для custom_dates)
-            trial_metrics = {k: float(np.mean(v)) if len(v) > 0 else None for k, v in metrics.items()}
-            self.trials_info[trial.number] = trial_metrics
             mlflow.log_params(params)
             for k, v in trial_metrics.items():
                 if v is not None and not (isinstance(v, float) and math.isnan(v)):
                     mlflow.log_metric(k, v)
             self.tags['datetime'] = str(datetime.datetime.now())
             mlflow.set_tags(tags=self.tags)
-            # Для timeseries и kfold возвращаем валидационную метрику, для custom_dates — тестовую
-            if self.split_type == "custom_dates":
-                return trial_metrics['roc_auc_test']
-            else:
-                return trial_metrics['roc_auc_valid']
+            return avg_valid_metric
 
     def optimize_and_log(self):
         with mlflow.start_run(experiment_id=self.experiment_id, run_name=self.run_name, nested=True):
@@ -264,7 +230,8 @@ class CatBoostTuner:
 #     cv=5,
 #     split_type="timeseries",
 #     sort_col="date_col",
-#     target_col="target"
+#     target_col="target",
+#     task_type="classification"
 # )
 # # 2. KFold
 # tuner = CatBoostTuner(
@@ -276,7 +243,8 @@ class CatBoostTuner:
 #     n_trials=100,
 #     cv=5,
 #     split_type="kfold",
-#     target_col="target"
+#     target_col="target",
+#     task_type="regression"
 # )
 # # 3. Custom dates
 # tuner = CatBoostTuner(
