@@ -1,13 +1,15 @@
-# Требуются библиотеки: mlflow, optuna, numpy, catboost, scikit-learn
-import mlflow  # pip install mlflow
-import optuna  # pip install optuna
-import numpy as np  # pip install numpy
 import datetime
+import math
+import pandas as pd
+
+import mlflow  # pip install mlflow
+import numpy as np  # pip install numpy
+import optuna  # pip install optuna
 from catboost import CatBoostClassifier, CatBoostRegressor, Pool  # pip install catboost
 from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score
 from sklearn.model_selection import TimeSeriesSplit, KFold
-import pandas as pd
-import math
+
+from modeldiagnostics.modeldiagnostics import ModelDiagnostics
 
 class CatBoostTuner:
     def __init__(self, df, features, mvp, experiment_name,
@@ -147,7 +149,6 @@ class CatBoostTuner:
                         model = ModelClass(**params, verbose=0)
                         model.fit(pool)
                         # Используем ModelDiagnostics
-                        from modeldiagnostics.modeldiagnostics import ModelDiagnostics
                         diag = ModelDiagnostics(_X_train, _y_train, _X_valid, _y_valid, model, features=self.features, cat_features=cat_features, task_type=self.task_type)
                         train_metrics, valid_metrics = diag.compute_metrics()
                         metrics_list.append((train_metrics, valid_metrics))
@@ -169,7 +170,6 @@ class CatBoostTuner:
                         pool = Pool(_X_train, _y_train, cat_features=cat_features, feature_names=list(_X_train.columns))
                         model = ModelClass(**params, verbose=0)
                         model.fit(pool)
-                        from modeldiagnostics.modeldiagnostics import ModelDiagnostics
                         diag = ModelDiagnostics(_X_train, _y_train, _X_valid, _y_valid, model, features=self.features, cat_features=cat_features, task_type=self.task_type)
                         train_metrics, valid_metrics = diag.compute_metrics()
                         # Тест
@@ -189,7 +189,6 @@ class CatBoostTuner:
                 pool = Pool(_X_train, _y_train, cat_features=cat_features, feature_names=list(_X_train.columns))
                 model = ModelClass(**params, verbose=0)
                 model.fit(pool)
-                from modeldiagnostics.modeldiagnostics import ModelDiagnostics
                 diag = ModelDiagnostics(_X_train, _y_train, _X_test, _y_test, model, features=self.features, cat_features=cat_features, task_type=self.task_type)
                 train_metrics, test_metrics = diag.compute_metrics()
                 avg_valid_metric = test_metrics["roc_auc"] if self.task_type=="classification" else test_metrics["r2"]
