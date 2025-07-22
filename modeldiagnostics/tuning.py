@@ -11,7 +11,7 @@ from sklearn.model_selection import TimeSeriesSplit, KFold
 
 from modeldiagnostics.modeldiagnostics import ModelDiagnostics
 
-class CatBoostTuner:
+class TuningHyperparameters:
     def __init__(self, df, features, mvp, experiment_name,
                  run_name="CatboostClassifier", n_trials=100, cv=5, random_seed=42, tags=None, comment=None,
                  split_type="kfold", sort_col=None, date_col=None, train_start=None, train_end=None, test_start=None, test_end=None, target_col="target", task_type="classification"):
@@ -150,7 +150,7 @@ class CatBoostTuner:
                         model.fit(pool)
                         # Используем ModelDiagnostics
                         diag = ModelDiagnostics(_X_train, _y_train, _X_valid, _y_valid, model, features=self.features, cat_features=cat_features, task_type=self.task_type)
-                        train_metrics, valid_metrics = diag.compute_metrics()
+                        train_metrics, valid_metrics = diag.compute_metrics(print_metrics=False)
                         metrics_list.append((train_metrics, valid_metrics))
                 # Среднее по фолдам
                 avg_valid_metric = np.mean([m[1]["roc_auc"] if self.task_type=="classification" else m[1]["r2"] for m in metrics_list])
@@ -171,10 +171,10 @@ class CatBoostTuner:
                         model = ModelClass(**params, verbose=0)
                         model.fit(pool)
                         diag = ModelDiagnostics(_X_train, _y_train, _X_valid, _y_valid, model, features=self.features, cat_features=cat_features, task_type=self.task_type)
-                        train_metrics, valid_metrics = diag.compute_metrics()
+                        train_metrics, valid_metrics = diag.compute_metrics(print_metrics=False)
                         # Тест
                         diag_test = ModelDiagnostics(_X_train, _y_train, self.X_test, self.y_test, model, features=self.features, cat_features=cat_features, task_type=self.task_type)
-                        _, test_metrics = diag_test.compute_metrics()
+                        _, test_metrics = diag_test.compute_metrics(print_metrics=False)
                         metrics_list.append((train_metrics, valid_metrics, test_metrics))
                 avg_valid_metric = np.mean([m[1]["roc_auc"] if self.task_type=="classification" else m[1]["r2"] for m in metrics_list])
                 trial_metrics = metrics_list[-1][1]  # метрики последнего фолда для логирования
@@ -190,7 +190,7 @@ class CatBoostTuner:
                 model = ModelClass(**params, verbose=0)
                 model.fit(pool)
                 diag = ModelDiagnostics(_X_train, _y_train, _X_test, _y_test, model, features=self.features, cat_features=cat_features, task_type=self.task_type)
-                train_metrics, test_metrics = diag.compute_metrics()
+                train_metrics, test_metrics = diag.compute_metrics(print_metrics=False)
                 avg_valid_metric = test_metrics["roc_auc"] if self.task_type=="classification" else test_metrics["r2"]
                 trial_metrics = test_metrics
             else:
@@ -201,6 +201,7 @@ class CatBoostTuner:
                     mlflow.log_metric(k, v)
             self.tags['datetime'] = str(datetime.datetime.now())
             mlflow.set_tags(tags=self.tags)
+            self.trials_info[trial.number] = trial_metrics
             return avg_valid_metric
 
     def optimize_and_log(self):
@@ -217,9 +218,9 @@ class CatBoostTuner:
             print(f"Best params: {study.best_params}")
 
 # ===== Пример вызова класса =====
-# from tuning import CatBoostTuner
+# from tuning import TuningHyperparameters
 # # 1. TimeSeriesSplit
-# tuner = CatBoostTuner(
+# tuner = TuningHyperparameters(
 #     df=df,
 #     features=features,
 #     mvp=mvp,
@@ -233,7 +234,7 @@ class CatBoostTuner:
 #     task_type="classification"
 # )
 # # 2. KFold
-# tuner = CatBoostTuner(
+# tuner = TuningHyperparameters(
 #     df=df,
 #     features=features,
 #     mvp=mvp,
@@ -246,7 +247,7 @@ class CatBoostTuner:
 #     task_type="regression"
 # )
 # # 3. Custom dates
-# tuner = CatBoostTuner(
+# tuner = TuningHyperparameters(
 #     df=df,
 #     features=features,
 #     mvp=mvp,
