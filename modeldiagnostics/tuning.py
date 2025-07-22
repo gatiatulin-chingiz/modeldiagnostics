@@ -211,7 +211,11 @@ class TuningHyperparameters:
                 for k, v in test_metrics.items():
                     if v is not None and not (isinstance(v, float) and math.isnan(v)):
                         mlflow.log_metric(f"{k}_test", v)
-            self.trials_info[trial.number] = trial_metrics
+            self.trials_info[trial.number] = {
+                'train': train_metrics,
+                'valid': valid_metrics,
+                'test': test_metrics
+            }
             self.tags['datetime'] = str(datetime.datetime.now())
             mlflow.set_tags(tags=self.tags)
             return avg_valid_metric
@@ -229,16 +233,12 @@ class TuningHyperparameters:
                     return trial_metrics.get(self.optimize_metric, float('-inf'))
                 best_key = max(self.trials_info, key=lambda k: get_metric(self.trials_info[k]))
                 trial_metrics = self.trials_info[best_key]
-                for key, value in trial_metrics.items():
-                    if value is not None and not (isinstance(value, float) and math.isnan(value)):
-                        # Добавлять суффикс в зависимости от split_type, если его нет
-                        if key.endswith('_train') or key.endswith('_valid') or key.endswith('_test'):
-                            mlflow.log_metric(key, value)
-                        else:
-                            if self.split_type == "custom_dates":
-                                mlflow.log_metric(f"{key}_test", value)
-                            else:
-                                mlflow.log_metric(f"{key}_valid", value)
+                for stage in ['train', 'valid', 'test']:
+                    metrics = trial_metrics.get(stage)
+                    if metrics:
+                        for key, value in metrics.items():
+                            if value is not None and not (isinstance(value, float) and math.isnan(value)):
+                                mlflow.log_metric(f'{key}_{stage}', value)
             else:
                 print('No trials_info to log!')
             print(f"Best trial: {best_trial}, metrics: {self.trials_info[best_trial]}")
