@@ -35,19 +35,13 @@ class ModelDiagnostics:
             fairness: Признак для анализа справедливости
             task_type: Тип задачи - 'regression' или 'classification'
         """
-        # Проверка task_type
-        if task_type is None:
-            raise ValueError(
-                "Необходимо указать task_type. "
-                "Доступные значения:\n"
-                "- 'regression' - для задач регрессии\n"
-                "- 'classification' - для задач классификации"
-            )
         
         if task_type not in ['regression', 'classification']:
             raise ValueError(
                 f"Неподдерживаемый task_type: '{task_type}'. "
-                "Доступные значения: 'regression' или 'classification'"
+                "Доступные значения:\n"
+                "- 'regression' - для задач регрессии\n"
+                "- 'classification' - для задач классификации"
             )
         
         # Установка features по умолчанию
