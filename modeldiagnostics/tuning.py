@@ -8,13 +8,13 @@ from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_sco
 from sklearn.model_selection import TimeSeriesSplit, KFold
 
 class CatBoostTuner:
-    def __init__(self, X_train, y_train, X_test, y_test, summary, mvp, experiment_name,
+    def __init__(self, X_train, y_train, X_test, y_test, features, mvp, experiment_name,
                  run_name="CatboostClassifier", n_trials=100, cv=5, random_seed=42, tags=None, comment=None):
-        self.X_train = X_train
+        self.X_train = X_train[features]
         self.y_train = y_train
-        self.X_test = X_test
+        self.X_test = X_test[features]
         self.y_test = y_test
-        self.summary = summary  # список признаков
+        self.features = features  # список признаков
         self.mvp = mvp          # список категориальных/бинарных признаков
         self.experiment_name = experiment_name
         self.run_name = run_name
@@ -33,7 +33,7 @@ class CatBoostTuner:
             'datetime': str(datetime.datetime.now()),
             'comment': self.comment,
             'model': 'catboost',
-            'features': str(self.summary),
+            'features': str(self.features),
         })
 
     @staticmethod
@@ -64,9 +64,9 @@ class CatBoostTuner:
     def _get_cat_features(self):
         # mvp должен содержать словарь с ключами 'BINARY' и 'CATEGORIAL', каждый из которых - список признаков
         if isinstance(self.mvp, dict):
-            return [i for i in (self.mvp.get('BINARY', []) + self.mvp.get('CATEGORIAL', [])) if i in self.summary]
+            return [i for i in (self.mvp.get('BINARY', []) + self.mvp.get('CATEGORIAL', [])) if i in self.features]
         # если mvp - просто список, возвращаем пересечение
-        return [i for i in self.mvp if i in self.summary]
+        return [i for i in self.mvp if i in self.features]
 
     def objective(self, trial):
         print(f'Trial № {str(trial.number)}')
@@ -150,9 +150,9 @@ class CatBoostTuner:
 # from tuning import CatBoostTuner
 # tuner = CatBoostTuner(
 #     X_train, y_train, X_test, y_test,
-#     summary=summary,
+#     features=features,
 #     mvp=mvp,
-#     comment='claim_probability',te
+#     comment='claim_probability',
 #     experiment_name="claim_probability_2",
 #     run_name="CatboostClassifier",
 #     n_trials=100,
