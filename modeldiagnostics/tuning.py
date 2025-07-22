@@ -198,16 +198,19 @@ class TuningHyperparameters:
                 raise ValueError(f"Unknown split_type: {self.split_type}")
             mlflow.log_params(params)
             # Для train/valid
-            for k, v in train_metrics.items():
-                if v is not None and not (isinstance(v, float) and math.isnan(v)):
-                    mlflow.log_metric(f"{k}_train", v)
-            for k, v in valid_metrics.items():
-                if v is not None and not (isinstance(v, float) and math.isnan(v)):
-                    mlflow.log_metric(f"{k}_valid", v)
+            if 'train_metrics' in locals():
+                for k, v in train_metrics.items():
+                    if v is not None and not (isinstance(v, float) and math.isnan(v)):
+                        mlflow.log_metric(f"{k}_train", v)
+            if 'valid_metrics' in locals():
+                for k, v in valid_metrics.items():
+                    if v is not None and not (isinstance(v, float) and math.isnan(v)):
+                        mlflow.log_metric(f"{k}_valid", v)
             # Для test (если есть)
-            for k, v in test_metrics.items():
-                if v is not None and not (isinstance(v, float) and math.isnan(v)):
-                    mlflow.log_metric(f"{k}_test", v)
+            if 'test_metrics' in locals():
+                for k, v in test_metrics.items():
+                    if v is not None and not (isinstance(v, float) and math.isnan(v)):
+                        mlflow.log_metric(f"{k}_test", v)
             self.trials_info[trial.number] = trial_metrics
             self.tags['datetime'] = str(datetime.datetime.now())
             mlflow.set_tags(tags=self.tags)
