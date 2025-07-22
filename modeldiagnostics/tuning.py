@@ -199,9 +199,9 @@ class TuningHyperparameters:
             for k, v in trial_metrics.items():
                 if v is not None and not (isinstance(v, float) and math.isnan(v)):
                     mlflow.log_metric(k, v)
+            self.trials_info[trial.number] = trial_metrics
             self.tags['datetime'] = str(datetime.datetime.now())
             mlflow.set_tags(tags=self.tags)
-            self.trials_info[trial.number] = trial_metrics
             return avg_valid_metric
 
     def optimize_and_log(self):
