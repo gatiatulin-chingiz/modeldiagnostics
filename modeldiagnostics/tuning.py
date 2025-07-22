@@ -246,7 +246,8 @@ class CatBoostTuner:
             mlflow.log_params(study.best_params)
             best_trial = study.best_trial.number
             for key, value in self.trials_info[best_trial].items():
-                mlflow.log_metric(key, value)
+                if value is not None and not (isinstance(value, float) and math.isnan(value)):
+                    mlflow.log_metric(key, value)
             print(f"Best trial: {best_trial}, metrics: {self.trials_info[best_trial]}")
             print(f"Best params: {study.best_params}")
 
