@@ -89,10 +89,10 @@ class CatBoostTuner:
             cat_features = self._get_cat_features()
             for fold, (train_index, valid_index) in enumerate(tscv.split(self.X_train)):
                 with mlflow.start_run(run_name=f'KFold № {fold}', nested=True):
-                    _X_train = self.X_train.loc[train_index]
-                    _y_train = self.y_train.loc[train_index]
-                    _X_valid = self.X_train.loc[valid_index]
-                    _y_valid = self.y_train.loc[valid_index]
+                    _X_train = self.X_train.iloc[train_index]
+                    _y_train = self.y_train.iloc[train_index]
+                    _X_valid = self.X_train.iloc[valid_index]
+                    _y_valid = self.y_train.iloc[valid_index]
                     pool = Pool(_X_train, _y_train, cat_features=cat_features, feature_names=list(_X_train.columns))
                     cb_model = CatBoostClassifier(**params, verbose=0)
                     cb_model.fit(pool)
