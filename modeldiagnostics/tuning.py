@@ -14,7 +14,7 @@ from modeldiagnostics.modeldiagnostics import ModelDiagnostics
 class TuningHyperparameters:
     def __init__(self, df, features, mvp, experiment_name,
                  run_name="CatboostClassifier", n_trials=100, cv=5, random_seed=42, tags=None, comment=None,
-                 split_type="kfold", sort_col=None, date_col=None, train_start=None, train_end=None, test_start=None, test_end=None, target_col="target", task_type="classification"):
+                 split_type="kfold", sort_col=None, date_col=None, train_start=None, train_end=None, test_start=None, test_end=None, target_col="target", task_type="classification", optimize_metric=None):
         self.df = df.copy()
         self.features = features
         self.mvp = mvp
@@ -35,6 +35,7 @@ class TuningHyperparameters:
         self.test_end = test_end
         self.target_col = target_col
         self.task_type = task_type
+        self.optimize_metric = optimize_metric or ("roc_auc" if task_type=="classification" else "r2")
         self._prepare_tags()
         self.experiment_id = self.get_or_create_experiment(self.experiment_name)
         mlflow.set_experiment(experiment_id=self.experiment_id)
@@ -153,7 +154,7 @@ class TuningHyperparameters:
                         train_metrics, valid_metrics = diag.compute_metrics(print_metrics=False)
                         metrics_list.append((train_metrics, valid_metrics))
                 # Среднее по фолдам
-                avg_valid_metric = np.mean([m[1]["roc_auc"] if self.task_type=="classification" else m[1]["r2"] for m in metrics_list])
+                avg_valid_metric = np.mean([m[1][self.optimize_metric] for m in metrics_list])
                 trial_metrics = metrics_list[-1][1]  # метрики последнего фолда для логирования
             elif self.split_type == "kfold":
                 splitter = KFold(n_splits=self.cv, shuffle=True, random_state=self.random_seed)
@@ -176,7 +177,7 @@ class TuningHyperparameters:
                         diag_test = ModelDiagnostics(_X_train, _y_train, self.X_test, self.y_test, model, features=self.features, cat_features=cat_features, task_type=self.task_type)
                         _, test_metrics = diag_test.compute_metrics(print_metrics=False)
                         metrics_list.append((train_metrics, valid_metrics, test_metrics))
-                avg_valid_metric = np.mean([m[1]["roc_auc"] if self.task_type=="classification" else m[1]["r2"] for m in metrics_list])
+                avg_valid_metric = np.mean([m[1][self.optimize_metric] for m in metrics_list])
                 trial_metrics = metrics_list[-1][1]  # метрики последнего фолда для логирования
             elif self.split_type == "custom_dates":
                 _X_train = self.X_train.copy()
@@ -191,7 +192,7 @@ class TuningHyperparameters:
                 model.fit(pool)
                 diag = ModelDiagnostics(_X_train, _y_train, _X_test, _y_test, model, features=self.features, cat_features=cat_features, task_type=self.task_type)
                 train_metrics, test_metrics = diag.compute_metrics(print_metrics=False)
-                avg_valid_metric = test_metrics["roc_auc"] if self.task_type=="classification" else test_metrics["r2"]
+                avg_valid_metric = test_metrics[self.optimize_metric]
                 trial_metrics = test_metrics
             else:
                 raise ValueError(f"Unknown split_type: {self.split_type}")
@@ -214,15 +215,20 @@ class TuningHyperparameters:
             if self.trials_info:
                 # Найти трейл с максимальной метрикой (например, roc_auc/r2)
                 def get_metric(trial_metrics):
-                    if self.task_type == 'classification':
-                        return trial_metrics.get('roc_auc', float('-inf'))
-                    else:
-                        return trial_metrics.get('r2', float('-inf'))
+                    return trial_metrics.get(self.optimize_metric, float('-inf'))
                 best_key = max(self.trials_info, key=lambda k: get_metric(self.trials_info[k]))
                 trial_metrics = self.trials_info[best_key]
                 for key, value in trial_metrics.items():
                     if value is not None and not (isinstance(value, float) and math.isnan(value)):
-                        mlflow.log_metric(key, value)
+                        # Добавить суффикс к имени метрики
+                        if key.endswith('_train'):
+                            mlflow.log_metric(f"{key}_train", value)
+                        elif key.endswith('_valid'):
+                            mlflow.log_metric(f"{key}_valid", value)
+                        elif key.endswith('_test'):
+                            mlflow.log_metric(f"{key}_test", value)
+                        else:
+                            mlflow.log_metric(key, value)
             else:
                 print('No trials_info to log!')
             print(f"Best trial: {best_trial}, metrics: {self.trials_info[best_trial]}")
@@ -242,7 +248,8 @@ class TuningHyperparameters:
 #     split_type="timeseries",
 #     sort_col="date_col",
 #     target_col="target",
-#     task_type="classification"
+#     task_type="classification",
+#     optimize_metric="roc_auc"
 # )
 # # 2. KFold
 # tuner = TuningHyperparameters(
@@ -255,7 +262,8 @@ class TuningHyperparameters:
 #     cv=5,
 #     split_type="kfold",
 #     target_col="target",
-#     task_type="regression"
+#     task_type="regression",
+#     optimize_metric="r2"
 # )
 # # 3. Custom dates
 # tuner = TuningHyperparameters(
