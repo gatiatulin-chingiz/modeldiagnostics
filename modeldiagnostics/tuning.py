@@ -279,6 +279,8 @@ class TuningHyperparameters:
 #     train_end="2021-01-01",
 #     test_start="2021-01-02",
 #     test_end="2022-01-01",
-#     target_col="target"
+#     target_col="target",
+#     task_type="classification",  # или "regression"
+#     optimize_metric="roc_auc"    # или "r2", "mae" и т.д.
 # )
 # tuner.optimize_and_log()
