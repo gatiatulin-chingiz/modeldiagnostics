@@ -9,7 +9,7 @@ from sklearn.model_selection import TimeSeriesSplit, KFold
 
 class CatBoostTuner:
     def __init__(self, X_train, y_train, X_test, y_test, features, mvp, experiment_name,
-                 run_name="CatboostClassifier", n_trials=100, cv=5, random_seed=42, tags=None, comment=None):
+                 run_name="CatboostClassifier", n_trials=100, cv=5, random_seed=42, tags=None, comment=None, split_type="kfold"):
         self.X_train = X_train[features]
         self.y_train = y_train
         self.X_test = X_test[features]
@@ -24,6 +24,7 @@ class CatBoostTuner:
         self.comment = comment
         self.tags = tags or {}
         self.trials_info = {}
+        self.split_type = split_type  # 'kfold' или 'timeseries'
         self._prepare_tags()
         self.experiment_id = self.get_or_create_experiment(self.experiment_name)
         mlflow.set_experiment(experiment_id=self.experiment_id)
@@ -81,14 +82,24 @@ class CatBoostTuner:
                 'precision_valid', 'recall_valid', 'f1_valid', 'roc_auc_valid', 'gini_valid',
                 'precision_test', 'recall_test', 'f1_test', 'roc_auc_test', 'gini_test',
             ]}
-            tscv = KFold(n_splits=self.cv, shuffle=True, random_state=self.random_seed)
+            if self.split_type == "kfold":
+                splitter = KFold(n_splits=self.cv, shuffle=True, random_state=self.random_seed)
+            elif self.split_type == "timeseries":
+                splitter = TimeSeriesSplit(n_splits=self.cv)
+            else:
+                raise ValueError(f"Unknown split_type: {self.split_type}")
             cat_features = self._get_cat_features()
-            for fold, (train_index, valid_index) in enumerate(tscv.split(self.X_train)):
+            for fold, (train_index, valid_index) in enumerate(splitter.split(self.X_train)):
                 with mlflow.start_run(run_name=f'KFold № {fold}', nested=True):
-                    _X_train = self.X_train.iloc[train_index]
+                    _X_train = self.X_train.iloc[train_index].copy()
                     _y_train = self.y_train.iloc[train_index]
-                    _X_valid = self.X_train.iloc[valid_index]
+                    _X_valid = self.X_train.iloc[valid_index].copy()
                     _y_valid = self.y_train.iloc[valid_index]
+                    # Преобразуем категориальные признаки к строке
+                    for col in cat_features:
+                        _X_train[col] = _X_train[col].astype(str)
+                        _X_valid[col] = _X_valid[col].astype(str)
+                    self.X_test[cat_features] = self.X_test[cat_features].astype(str)
                     pool = Pool(_X_train, _y_train, cat_features=cat_features, feature_names=list(_X_train.columns))
                     cb_model = CatBoostClassifier(**params, verbose=0)
                     cb_model.fit(pool)
@@ -152,6 +163,7 @@ class CatBoostTuner:
 #     experiment_name="claim_probability_2",
 #     run_name="CatboostClassifier",
 #     n_trials=100,
-#     cv=5
+#     cv=5,
+#     split_type="kfold"  # или split_type="timeseries"
 # )
 # tuner.optimize_and_log()
