@@ -211,12 +211,20 @@ class TuningHyperparameters:
             mlflow.set_tags(tags=self.tags)
             mlflow.log_params(study.best_params)
             best_trial = study.best_trial.number
-            if best_trial not in self.trials_info:
-                print(f"Warning: best_trial {best_trial} not found in trials_info. Available: {list(self.trials_info.keys())}")
-                return
-            for key, value in self.trials_info[best_trial].items():
-                if value is not None and not (isinstance(value, float) and math.isnan(value)):
-                    mlflow.log_metric(key, value)
+            if self.trials_info:
+                # Найти трейл с максимальной метрикой (например, roc_auc/r2)
+                def get_metric(trial_metrics):
+                    if self.task_type == 'classification':
+                        return trial_metrics.get('roc_auc', float('-inf'))
+                    else:
+                        return trial_metrics.get('r2', float('-inf'))
+                best_key = max(self.trials_info, key=lambda k: get_metric(self.trials_info[k]))
+                trial_metrics = self.trials_info[best_key]
+                for key, value in trial_metrics.items():
+                    if value is not None and not (isinstance(value, float) and math.isnan(value)):
+                        mlflow.log_metric(key, value)
+            else:
+                print('No trials_info to log!')
             print(f"Best trial: {best_trial}, metrics: {self.trials_info[best_trial]}")
             print(f"Best params: {study.best_params}")
 
