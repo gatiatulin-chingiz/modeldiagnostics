@@ -6,16 +6,15 @@ import datetime
 from catboost import CatBoostClassifier, Pool  # pip install catboost
 from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score
 from sklearn.model_selection import TimeSeriesSplit, KFold
+import pandas as pd
 
 class CatBoostTuner:
-    def __init__(self, X_train, y_train, X_test, y_test, features, mvp, experiment_name,
-                 run_name="CatboostClassifier", n_trials=100, cv=5, random_seed=42, tags=None, comment=None, split_type="kfold"):
-        self.X_train = X_train[features]
-        self.y_train = y_train
-        self.X_test = X_test[features]
-        self.y_test = y_test
-        self.features = features  # список признаков
-        self.mvp = mvp          # список категориальных/бинарных признаков
+    def __init__(self, df, features, mvp, experiment_name,
+                 run_name="CatboostClassifier", n_trials=100, cv=5, random_seed=42, tags=None, comment=None,
+                 split_type="kfold", sort_col=None, date_col=None, train_start=None, train_end=None, test_start=None, test_end=None):
+        self.df = df.copy()
+        self.features = features
+        self.mvp = mvp
         self.experiment_name = experiment_name
         self.run_name = run_name
         self.n_trials = n_trials
@@ -24,10 +23,49 @@ class CatBoostTuner:
         self.comment = comment
         self.tags = tags or {}
         self.trials_info = {}
-        self.split_type = split_type  # 'kfold' или 'timeseries'
+        self.split_type = split_type
+        self.sort_col = sort_col
+        self.date_col = date_col
+        self.train_start = train_start
+        self.train_end = train_end
+        self.test_start = test_start
+        self.test_end = test_end
         self._prepare_tags()
         self.experiment_id = self.get_or_create_experiment(self.experiment_name)
         mlflow.set_experiment(experiment_id=self.experiment_id)
+        self._split_data()
+
+    def _split_data(self):
+        if self.split_type == "timeseries":
+            assert self.sort_col is not None, "sort_col must be provided for timeseries split"
+            df_sorted = self.df.sort_values(self.sort_col)
+            self.X = df_sorted[self.features]
+            self.y = df_sorted[self.mvp.target] if hasattr(self.mvp, 'target') else df_sorted['target']
+            self.X_test = None
+            self.y_test = None
+        elif self.split_type == "kfold":
+            df_shuffled = self.df.sample(frac=1, random_state=self.random_seed).reset_index(drop=True)
+            test_size = int(0.2 * len(df_shuffled))
+            df_test = df_shuffled.iloc[:test_size]
+            df_train = df_shuffled.iloc[test_size:]
+            self.X_train = df_train[self.features]
+            self.y_train = df_train[self.mvp.target] if hasattr(self.mvp, 'target') else df_train['target']
+            self.X_test = df_test[self.features]
+            self.y_test = df_test[self.mvp.target] if hasattr(self.mvp, 'target') else df_test['target']
+        elif self.split_type == "custom_dates":
+            assert self.date_col and self.train_start and self.train_end and self.test_start and self.test_end, "date_col, train_start, train_end, test_start, test_end must be provided for custom_dates split"
+            df = self.df.copy()
+            df[self.date_col] = pd.to_datetime(df[self.date_col])
+            train_mask = (df[self.date_col] >= pd.to_datetime(self.train_start)) & (df[self.date_col] <= pd.to_datetime(self.train_end))
+            test_mask = (df[self.date_col] >= pd.to_datetime(self.test_start)) & (df[self.date_col] <= pd.to_datetime(self.test_end))
+            df_train = df[train_mask]
+            df_test = df[test_mask]
+            self.X_train = df_train[self.features]
+            self.y_train = df_train[self.mvp.target] if hasattr(self.mvp, 'target') else df_train['target']
+            self.X_test = df_test[self.features]
+            self.y_test = df_test[self.mvp.target] if hasattr(self.mvp, 'target') else df_test['target']
+        else:
+            raise ValueError(f"Unknown split_type: {self.split_type}")
 
     def _prepare_tags(self):
         self.tags.update({
@@ -82,64 +120,120 @@ class CatBoostTuner:
                 'precision_valid', 'recall_valid', 'f1_valid', 'roc_auc_valid', 'gini_valid',
                 'precision_test', 'recall_test', 'f1_test', 'roc_auc_test', 'gini_test',
             ]}
-            if self.split_type == "kfold":
-                splitter = KFold(n_splits=self.cv, shuffle=True, random_state=self.random_seed)
-            elif self.split_type == "timeseries":
+            cat_features = self._get_cat_features()
+            if self.split_type == "timeseries":
                 splitter = TimeSeriesSplit(n_splits=self.cv)
+                for fold, (train_index, valid_index) in enumerate(splitter.split(self.X)):
+                    with mlflow.start_run(run_name=f'Fold № {fold}', nested=True):
+                        _X_train = self.X.iloc[train_index].copy()
+                        _y_train = self.y.iloc[train_index]
+                        _X_valid = self.X.iloc[valid_index].copy()
+                        _y_valid = self.y.iloc[valid_index]
+                        for col in cat_features:
+                            _X_train[col] = _X_train[col].astype(str)
+                            _X_valid[col] = _X_valid[col].astype(str)
+                        pool = Pool(_X_train, _y_train, cat_features=cat_features, feature_names=list(_X_train.columns))
+                        cb_model = CatBoostClassifier(**params, verbose=0)
+                        cb_model.fit(pool)
+                        # Train
+                        predict_train = cb_model.predict(_X_train)
+                        proba_train = cb_model.predict_proba(_X_train)[:, 1]
+                        metrics['precision_train'].append(precision_score(_y_train, predict_train))
+                        metrics['recall_train'].append(recall_score(_y_train, predict_train))
+                        metrics['f1_train'].append(f1_score(_y_train, predict_train))
+                        metrics['roc_auc_train'].append(roc_auc_score(_y_train, proba_train))
+                        metrics['gini_train'].append(self.Gini(_y_train, proba_train))
+                        # Valid
+                        predict_valid = cb_model.predict(_X_valid)
+                        proba_valid = cb_model.predict_proba(_X_valid)[:, 1]
+                        metrics['precision_valid'].append(precision_score(_y_valid, predict_valid))
+                        metrics['recall_valid'].append(recall_score(_y_valid, predict_valid))
+                        metrics['f1_valid'].append(f1_score(_y_valid, predict_valid))
+                        metrics['roc_auc_valid'].append(roc_auc_score(_y_valid, proba_valid))
+                        metrics['gini_valid'].append(self.Gini(_y_valid, proba_valid))
+                # Тест не используется
+            elif self.split_type == "kfold":
+                splitter = KFold(n_splits=self.cv, shuffle=True, random_state=self.random_seed)
+                for fold, (train_index, valid_index) in enumerate(splitter.split(self.X_train)):
+                    with mlflow.start_run(run_name=f'Fold № {fold}', nested=True):
+                        _X_train = self.X_train.iloc[train_index].copy()
+                        _y_train = self.y_train.iloc[train_index]
+                        _X_valid = self.X_train.iloc[valid_index].copy()
+                        _y_valid = self.y_train.iloc[valid_index]
+                        for col in cat_features:
+                            _X_train[col] = _X_train[col].astype(str)
+                            _X_valid[col] = _X_valid[col].astype(str)
+                        self.X_test[cat_features] = self.X_test[cat_features].astype(str)
+                        pool = Pool(_X_train, _y_train, cat_features=cat_features, feature_names=list(_X_train.columns))
+                        cb_model = CatBoostClassifier(**params, verbose=0)
+                        cb_model.fit(pool)
+                        # Train
+                        predict_train = cb_model.predict(_X_train)
+                        proba_train = cb_model.predict_proba(_X_train)[:, 1]
+                        metrics['precision_train'].append(precision_score(_y_train, predict_train))
+                        metrics['recall_train'].append(recall_score(_y_train, predict_train))
+                        metrics['f1_train'].append(f1_score(_y_train, predict_train))
+                        metrics['roc_auc_train'].append(roc_auc_score(_y_train, proba_train))
+                        metrics['gini_train'].append(self.Gini(_y_train, proba_train))
+                        # Valid
+                        predict_valid = cb_model.predict(_X_valid)
+                        proba_valid = cb_model.predict_proba(_X_valid)[:, 1]
+                        metrics['precision_valid'].append(precision_score(_y_valid, predict_valid))
+                        metrics['recall_valid'].append(recall_score(_y_valid, predict_valid))
+                        metrics['f1_valid'].append(f1_score(_y_valid, predict_valid))
+                        metrics['roc_auc_valid'].append(roc_auc_score(_y_valid, proba_valid))
+                        metrics['gini_valid'].append(self.Gini(_y_valid, proba_valid))
+                        # Test
+                        predict_test = cb_model.predict(self.X_test)
+                        proba_test = cb_model.predict_proba(self.X_test)[:, 1]
+                        metrics['precision_test'].append(precision_score(self.y_test, predict_test))
+                        metrics['recall_test'].append(recall_score(self.y_test, predict_test))
+                        metrics['f1_test'].append(f1_score(self.y_test, predict_test))
+                        metrics['roc_auc_test'].append(roc_auc_score(self.y_test, proba_test))
+                        metrics['gini_test'].append(self.Gini(self.y_test, proba_test))
+            elif self.split_type == "custom_dates":
+                # Только train и test, без кроссвалидации
+                _X_train = self.X_train.copy()
+                _y_train = self.y_train
+                _X_test = self.X_test.copy()
+                _y_test = self.y_test
+                for col in cat_features:
+                    _X_train[col] = _X_train[col].astype(str)
+                    _X_test[col] = _X_test[col].astype(str)
+                pool = Pool(_X_train, _y_train, cat_features=cat_features, feature_names=list(_X_train.columns))
+                cb_model = CatBoostClassifier(**params, verbose=0)
+                cb_model.fit(pool)
+                # Train
+                predict_train = cb_model.predict(_X_train)
+                proba_train = cb_model.predict_proba(_X_train)[:, 1]
+                metrics['precision_train'].append(precision_score(_y_train, predict_train))
+                metrics['recall_train'].append(recall_score(_y_train, predict_train))
+                metrics['f1_train'].append(f1_score(_y_train, predict_train))
+                metrics['roc_auc_train'].append(roc_auc_score(_y_train, proba_train))
+                metrics['gini_train'].append(self.Gini(_y_train, proba_train))
+                # Test
+                predict_test = cb_model.predict(_X_test)
+                proba_test = cb_model.predict_proba(_X_test)[:, 1]
+                metrics['precision_test'].append(precision_score(_y_test, predict_test))
+                metrics['recall_test'].append(recall_score(_y_test, predict_test))
+                metrics['f1_test'].append(f1_score(_y_test, predict_test))
+                metrics['roc_auc_test'].append(roc_auc_score(_y_test, proba_test))
+                metrics['gini_test'].append(self.Gini(_y_test, proba_test))
             else:
                 raise ValueError(f"Unknown split_type: {self.split_type}")
-            cat_features = self._get_cat_features()
-            for fold, (train_index, valid_index) in enumerate(splitter.split(self.X_train)):
-                with mlflow.start_run(run_name=f'KFold № {fold}', nested=True):
-                    _X_train = self.X_train.iloc[train_index].copy()
-                    _y_train = self.y_train.iloc[train_index]
-                    _X_valid = self.X_train.iloc[valid_index].copy()
-                    _y_valid = self.y_train.iloc[valid_index]
-                    # Преобразуем категориальные признаки к строке
-                    for col in cat_features:
-                        _X_train[col] = _X_train[col].astype(str)
-                        _X_valid[col] = _X_valid[col].astype(str)
-                    self.X_test[cat_features] = self.X_test[cat_features].astype(str)
-                    pool = Pool(_X_train, _y_train, cat_features=cat_features, feature_names=list(_X_train.columns))
-                    cb_model = CatBoostClassifier(**params, verbose=0)
-                    cb_model.fit(pool)
-                    # Train
-                    predict_train = cb_model.predict(_X_train)
-                    proba_train = cb_model.predict_proba(_X_train)[:, 1]
-                    metrics['precision_train'].append(precision_score(_y_train, predict_train))
-                    metrics['recall_train'].append(recall_score(_y_train, predict_train))
-                    metrics['f1_train'].append(f1_score(_y_train, predict_train))
-                    metrics['roc_auc_train'].append(roc_auc_score(_y_train, proba_train))
-                    metrics['gini_train'].append(self.Gini(_y_train, proba_train))
-                    # Valid
-                    predict_valid = cb_model.predict(_X_valid)
-                    proba_valid = cb_model.predict_proba(_X_valid)[:, 1]
-                    metrics['precision_valid'].append(precision_score(_y_valid, predict_valid))
-                    metrics['recall_valid'].append(recall_score(_y_valid, predict_valid))
-                    metrics['f1_valid'].append(f1_score(_y_valid, predict_valid))
-                    metrics['roc_auc_valid'].append(roc_auc_score(_y_valid, proba_valid))
-                    metrics['gini_valid'].append(self.Gini(_y_valid, proba_valid))
-                    # Test
-                    predict_test = cb_model.predict(self.X_test)
-                    proba_test = cb_model.predict_proba(self.X_test)[:, 1]
-                    metrics['precision_test'].append(precision_score(self.y_test, predict_test))
-                    metrics['recall_test'].append(recall_score(self.y_test, predict_test))
-                    metrics['f1_test'].append(f1_score(self.y_test, predict_test))
-                    metrics['roc_auc_test'].append(roc_auc_score(self.y_test, proba_test))
-                    metrics['gini_test'].append(self.Gini(self.y_test, proba_test))
-                    # Логируем метрики для каждого фолда
-                    for k in metrics:
-                        mlflow.log_metric(k, metrics[k][-1])
-                    mlflow.log_params(params)
-            # Средние значения по фолдам
-            trial_metrics = {k: float(np.mean(v)) for k, v in metrics.items()}
+            # Средние значения по фолдам (или просто значения для custom_dates)
+            trial_metrics = {k: float(np.mean(v)) if len(v) > 0 else None for k, v in metrics.items()}
             self.trials_info[trial.number] = trial_metrics
             mlflow.log_params(params)
             for k, v in trial_metrics.items():
                 mlflow.log_metric(k, v)
             self.tags['datetime'] = str(datetime.datetime.now())
             mlflow.set_tags(tags=self.tags)
-            return trial_metrics['roc_auc_valid']
+            # Для timeseries и kfold возвращаем валидационную метрику, для custom_dates — тестовую
+            if self.split_type == "custom_dates":
+                return trial_metrics['roc_auc_test']
+            else:
+                return trial_metrics['roc_auc_valid']
 
     def optimize_and_log(self):
         with mlflow.start_run(experiment_id=self.experiment_id, run_name=self.run_name, nested=True):
@@ -155,15 +249,42 @@ class CatBoostTuner:
 
 # ===== Пример вызова класса =====
 # from tuning import CatBoostTuner
+# # 1. TimeSeriesSplit
 # tuner = CatBoostTuner(
-#     X_train, y_train, X_test, y_test,
+#     df=df,
 #     features=features,
 #     mvp=mvp,
-#     comment='claim_probability',
 #     experiment_name="claim_probability_2",
 #     run_name="CatboostClassifier",
 #     n_trials=100,
 #     cv=5,
-#     split_type="kfold"  # или split_type="timeseries"
+#     split_type="timeseries",
+#     sort_col="date_col"
+# )
+# # 2. KFold
+# tuner = CatBoostTuner(
+#     df=df,
+#     features=features,
+#     mvp=mvp,
+#     experiment_name="claim_probability_2",
+#     run_name="CatboostClassifier",
+#     n_trials=100,
+#     cv=5,
+#     split_type="kfold"
+# )
+# # 3. Custom dates
+# tuner = CatBoostTuner(
+#     df=df,
+#     features=features,
+#     mvp=mvp,
+#     experiment_name="claim_probability_2",
+#     run_name="CatboostClassifier",
+#     n_trials=100,
+#     split_type="custom_dates",
+#     date_col="date_col",
+#     train_start="2020-01-01",
+#     train_end="2021-01-01",
+#     test_start="2021-01-02",
+#     test_end="2022-01-01"
 # )
 # tuner.optimize_and_log()
