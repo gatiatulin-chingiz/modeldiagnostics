@@ -222,6 +222,23 @@ class TuningHyperparameters:
 
     def optimize_and_log(self):
         with mlflow.start_run(experiment_id=self.experiment_id, run_name=self.run_name, nested=True):
+            # Логируем информацию о датасете
+            dataset_info = {
+                'features': self.features,
+                'target_col': self.target_col,
+                'split_type': self.split_type,
+                'n_train': len(self.X_train) if hasattr(self, 'X_train') else (len(self.X) if hasattr(self, 'X') else None),
+                'n_valid': len(self.X_valid) if hasattr(self, 'X_valid') else None,
+                'n_test': len(self.X_test) if hasattr(self, 'X_test') else None,
+                'train_start': str(self.train_start) if hasattr(self, 'train_start') else None,
+                'train_end': str(self.train_end) if hasattr(self, 'train_end') else None,
+                'test_start': str(self.test_start) if hasattr(self, 'test_start') else None,
+                'test_end': str(self.test_end) if hasattr(self, 'test_end') else None,
+                'cat_features': self._get_cat_features(),
+                'target_unique': list(self.y_train.unique()) if hasattr(self, 'y_train') else None,
+                'target_counts': self.y_train.value_counts().to_dict() if hasattr(self, 'y_train') else None,
+            }
+            mlflow.log_dict(dataset_info, 'dataset_info.json')
             study = optuna.create_study(direction="maximize")
             study.optimize(self.objective, n_trials=self.n_trials, callbacks=[self.champion_callback])
             mlflow.set_tags(tags=self.tags)
