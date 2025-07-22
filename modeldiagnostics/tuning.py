@@ -11,7 +11,7 @@ import pandas as pd
 class CatBoostTuner:
     def __init__(self, df, features, mvp, experiment_name,
                  run_name="CatboostClassifier", n_trials=100, cv=5, random_seed=42, tags=None, comment=None,
-                 split_type="kfold", sort_col=None, date_col=None, train_start=None, train_end=None, test_start=None, test_end=None):
+                 split_type="kfold", sort_col=None, date_col=None, train_start=None, train_end=None, test_start=None, test_end=None, target_col="target"):
         self.df = df.copy()
         self.features = features
         self.mvp = mvp
@@ -30,6 +30,7 @@ class CatBoostTuner:
         self.train_end = train_end
         self.test_start = test_start
         self.test_end = test_end
+        self.target_col = target_col
         self._prepare_tags()
         self.experiment_id = self.get_or_create_experiment(self.experiment_name)
         mlflow.set_experiment(experiment_id=self.experiment_id)
@@ -40,7 +41,7 @@ class CatBoostTuner:
             assert self.sort_col is not None, "sort_col must be provided for timeseries split"
             df_sorted = self.df.sort_values(self.sort_col)
             self.X = df_sorted[self.features]
-            self.y = df_sorted[self.mvp.target] if hasattr(self.mvp, 'target') else df_sorted['target']
+            self.y = df_sorted[self.target_col]
             self.X_test = None
             self.y_test = None
         elif self.split_type == "kfold":
@@ -49,9 +50,9 @@ class CatBoostTuner:
             df_test = df_shuffled.iloc[:test_size]
             df_train = df_shuffled.iloc[test_size:]
             self.X_train = df_train[self.features]
-            self.y_train = df_train[self.mvp.target] if hasattr(self.mvp, 'target') else df_train['target']
+            self.y_train = df_train[self.target_col]
             self.X_test = df_test[self.features]
-            self.y_test = df_test[self.mvp.target] if hasattr(self.mvp, 'target') else df_test['target']
+            self.y_test = df_test[self.target_col]
         elif self.split_type == "custom_dates":
             assert self.date_col and self.train_start and self.train_end and self.test_start and self.test_end, "date_col, train_start, train_end, test_start, test_end must be provided for custom_dates split"
             df = self.df.copy()
@@ -61,9 +62,9 @@ class CatBoostTuner:
             df_train = df[train_mask]
             df_test = df[test_mask]
             self.X_train = df_train[self.features]
-            self.y_train = df_train[self.mvp.target] if hasattr(self.mvp, 'target') else df_train['target']
+            self.y_train = df_train[self.target_col]
             self.X_test = df_test[self.features]
-            self.y_test = df_test[self.mvp.target] if hasattr(self.mvp, 'target') else df_test['target']
+            self.y_test = df_test[self.target_col]
         else:
             raise ValueError(f"Unknown split_type: {self.split_type}")
 
@@ -259,7 +260,8 @@ class CatBoostTuner:
 #     n_trials=100,
 #     cv=5,
 #     split_type="timeseries",
-#     sort_col="date_col"
+#     sort_col="date_col",
+#     target_col="target"
 # )
 # # 2. KFold
 # tuner = CatBoostTuner(
@@ -270,7 +272,8 @@ class CatBoostTuner:
 #     run_name="CatboostClassifier",
 #     n_trials=100,
 #     cv=5,
-#     split_type="kfold"
+#     split_type="kfold",
+#     target_col="target"
 # )
 # # 3. Custom dates
 # tuner = CatBoostTuner(
@@ -285,6 +288,7 @@ class CatBoostTuner:
 #     train_start="2020-01-01",
 #     train_end="2021-01-01",
 #     test_start="2021-01-02",
-#     test_end="2022-01-01"
+#     test_end="2022-01-01",
+#     target_col="target"
 # )
 # tuner.optimize_and_log()
