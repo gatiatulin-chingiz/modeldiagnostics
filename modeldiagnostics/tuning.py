@@ -62,11 +62,7 @@ class CatBoostTuner:
                 print(f"Initial trial {frozen_trial.number} achieved value: {frozen_trial.value}")
 
     def _get_cat_features(self):
-        # mvp должен содержать словарь с ключами 'BINARY' и 'CATEGORIAL', каждый из которых - список признаков
-        if isinstance(self.mvp, dict):
-            return [i for i in (self.mvp.get('BINARY', []) + self.mvp.get('CATEGORIAL', [])) if i in self.features]
-        # если mvp - просто список, возвращаем пересечение
-        return [i for i in self.mvp if i in self.features]
+        return [i for i in (self.mvp.types_dict['BINARY'] + self.mvp.types_dict['CATEGORIAL']) if i in self.features]
 
     def objective(self, trial):
         print(f'Trial № {str(trial.number)}')
