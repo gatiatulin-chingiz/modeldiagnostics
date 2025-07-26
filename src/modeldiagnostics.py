@@ -201,6 +201,12 @@ class ModelDiagnostics:
             except:
                 metrics['gini'] = float('nan')
 
+            # Добавляем shift метрику для регрессии
+            try:
+                metrics['shift'] = np.mean(predicted_values) / np.mean(real_values) if np.mean(real_values) != 0 else float('nan')
+            except:
+                metrics['shift'] = float('nan')
+
             return metrics
     
     def compute_classification_metrics(self, real_values, predicted_proba):
