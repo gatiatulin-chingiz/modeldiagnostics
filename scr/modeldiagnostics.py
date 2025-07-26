@@ -15,6 +15,7 @@ from scipy.stats import spearmanr
 from sklearn.inspection import PartialDependenceDisplay
 import statsmodels.api as sm
 from scipy import stats
+from .gini import Gini
 
 
 
@@ -194,6 +195,12 @@ class ModelDiagnostics:
             else:
                 metrics['mpe'] = float('nan')
 
+            # Добавляем метрику Gini для регрессии
+            try:
+                metrics['gini'] = Gini(real_values, predicted_values)
+            except:
+                metrics['gini'] = float('nan')
+
             return metrics
     
     def compute_classification_metrics(self, real_values, predicted_proba):
@@ -231,7 +238,13 @@ class ModelDiagnostics:
             # Добавляем AUC-ROC, PR-AUC, Gini и ECE, если есть вероятности
             metrics['roc_auc'] = roc_auc_score(real_values, predicted_proba)
             metrics['pr_auc'] = average_precision_score(real_values, predicted_proba)
-            metrics['gini'] = 2 * metrics['roc_auc'] - 1
+            
+            # Используем метрику Gini из gini.py для классификации
+            try:
+                metrics['gini'] = Gini(real_values, predicted_proba)
+            except:
+                metrics['gini'] = float('nan')
+                
             metrics['ece'] = self._calculate_ece(real_values, predicted_proba)
 
             return metrics
