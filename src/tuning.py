@@ -9,7 +9,7 @@ from catboost import CatBoostClassifier, CatBoostRegressor, Pool  # pip install 
 from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score
 from sklearn.model_selection import TimeSeriesSplit, KFold
 
-from modeldiagnostics.modeldiagnostics import ModelDiagnostics
+from modeldiagnostics.src.modeldiagnostics import ModelDiagnostics
 
 class TuningHyperparameters:
     def __init__(self, df, features, mvp, experiment_name,
@@ -35,7 +35,7 @@ class TuningHyperparameters:
         self.test_end = test_end
         self.target_col = target_col
         self.task_type = task_type
-        self.optimize_metric = optimize_metric or ("roc_auc" if task_type=="classification" else "r2")
+        self.optimize_metric = optimize_metric
         self._prepare_tags()
         self.experiment_id = self.get_or_create_experiment(self.experiment_name)
         mlflow.set_experiment(experiment_id=self.experiment_id)
@@ -87,10 +87,6 @@ class TuningHyperparameters:
             return experiment.experiment_id
         else:
             return mlflow.create_experiment(experiment_name)
-
-    @staticmethod
-    def Gini(y_true, y_pred):
-        return 2 * roc_auc_score(y_true, y_pred) - 1
 
     @staticmethod
     def champion_callback(study, frozen_trial):
