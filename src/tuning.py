@@ -110,14 +110,57 @@ class TuningHyperparameters:
         with mlflow.start_run(run_name=f'Trial № {trial.number}', nested=True):
             if self.task_type == "classification":
                 params = {
-                    'iterations': trial.suggest_int('iterations', 50, 500),
-                    'grow_policy': trial.suggest_categorical('grow_policy', ['SymmetricTree', 'Depthwise']),
-                    'l2_leaf_reg': trial.suggest_int('l2_leaf_reg', 1, 10, step=1),
-                    'depth': trial.suggest_int('depth', 2, 6),
-                    'auto_class_weights': trial.suggest_categorical('auto_class_weights', ['Balanced', None]),
-                    'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.5),
-                    'random_state': self.random_seed,
-                }
+                            # Основные параметры обучения
+                            'iterations': trial.suggest_int('iterations', 100, 2000, step=100),
+                            'learning_rate': trial.suggest_float('learning_rate', 0.001, 0.3, log=True),
+                            'depth': trial.suggest_int('depth', 3, 12),
+                            'grow_policy': trial.suggest_categorical('grow_policy', ['SymmetricTree', 'Depthwise', 'Lossguide']),
+                            
+                            # Регуляризация
+                            'l2_leaf_reg': trial.suggest_float('l2_leaf_reg', 1.0, 10.0, step=0.5),
+                            'bootstrap_type': trial.suggest_categorical('bootstrap_type', ['Bayesian', 'Bernoulli', 'MVS', 'No']),
+                            
+                            # Веса классов и балансировка
+                            'auto_class_weights': trial.suggest_categorical('auto_class_weights', ['Balanced', 'SqrtBalanced', None]),
+                            
+                            # Параметры для разных типов бутстрэпа
+                            'bagging_temperature': trial.suggest_float('bagging_temperature', 0.0, 1.0) 
+                            if trial.params.get('bootstrap_type') == 'Bayesian' else None,
+                            
+                            'subsample': trial.suggest_float('subsample', 0.5, 1.0) 
+                            if trial.params.get('bootstrap_type') in ['Bernoulli', 'MVS'] else None,
+                            
+                            # Дополнительные параметры регуляризации
+                            'random_strength': trial.suggest_float('random_strength', 1e-9, 10.0, log=True),
+                            'rsm': trial.suggest_float('rsm', 0.5, 1.0),  # Случайный сэмплинг признаков
+                            
+                            # Параметры для Lossguide grow policy
+                            'min_data_in_leaf': trial.suggest_int('min_data_in_leaf', 1, 20) 
+                            if trial.params.get('grow_policy') == 'Lossguide' else None,
+                            
+                            'max_leaves': trial.suggest_int('max_leaves', 2, 64) 
+                            if trial.params.get('grow_policy') == 'Lossguide' else None,
+                            
+                            # Дополнительные параметры
+                            'leaf_estimation_method': trial.suggest_categorical('leaf_estimation_method', ['Newton', 'Gradient']),
+                            'leaf_estimation_iterations': trial.suggest_int('leaf_estimation_iterations', 1, 10),
+                            'feature_border_type': trial.suggest_categorical('feature_border_type', 
+                                                                            ['Median', 'Uniform', 'UniformAndQuantiles', 'MaxLogSum']),
+                            
+                            # Скорость обучения и адаптация
+                            'learning_rate_decay': trial.suggest_float('learning_rate_decay', 0.8, 1.0),
+                            
+                            # Работа с категориальными признаками
+                            'one_hot_max_size': trial.suggest_int('one_hot_max_size', 2, 255),
+                            
+                            # Параметры для уменьшения переобучения
+                            'early_stopping_rounds': trial.suggest_int('early_stopping_rounds', 10, 100),
+                            
+                            # Фиксированные параметры
+                            'random_seed': self.random_seed,
+                            'verbose': False,
+                            'allow_writing_files': False,
+                        }
                 ModelClass = CatBoostClassifier
             else:
                 params = {
