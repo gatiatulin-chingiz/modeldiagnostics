@@ -21,7 +21,7 @@ from .gini import Gini
 
 class ModelDiagnostics:
     def __init__(self, X_train, y_train, X_test, y_test, model, features=None, cat_features=None,
-                 target_transform=None, fairness=None, task_type=None):
+                 fairness=None, task_type=None):
         """
         Инициализация диагностики модели.
         Args:
@@ -32,7 +32,6 @@ class ModelDiagnostics:
             model: Обученная модель
             features: Список признаков для использования (по умолчанию все)
             cat_features: Список категориальных признаков
-            target_transform (str or None): Преобразование целевой переменной. Поддерживается: 'log1p' или None.
             fairness: Признак для анализа справедливости
             task_type: Тип задачи - 'regression' или 'classification'
         """
@@ -69,15 +68,7 @@ class ModelDiagnostics:
         self.fairness = fairness
         self.RANDOM_STATE = 2025
 
-        # Поддержка обратного преобразования
-        self.target_transform = target_transform
 
-    def _inverse_transform(self, values):
-        """Обратное преобразование для предсказаний"""
-        if self.target_transform == 'log1p':
-            return np.expm1(values)
-        else:
-            return values
     
     def _calculate_ece(self, y_true, y_pred_proba, n_bins=10):
         """
@@ -260,11 +251,7 @@ class ModelDiagnostics:
             pred_train = self.model.predict(self.X_train[self.features])
             pred_test = self.model.predict(self.X_test[self.features])
 
-            # Обратное преобразование предсказаний
-            pred_train = self._inverse_transform(pred_train)
-            pred_test = self._inverse_transform(pred_test)
-
-            self.metrics_train = self.compute_regression_metrics(self._inverse_transform(self.y_train), pred_train)
+            self.metrics_train = self.compute_regression_metrics(self.y_train, pred_train)
             self.metrics_test = self.compute_regression_metrics(self.y_test, pred_test)
         elif self.task_type == 'classification':
             pred_train_proba = self.model.predict_proba(self.X_train[self.features])[:, 1]
@@ -290,9 +277,6 @@ class ModelDiagnostics:
             predicted_values: Предсказанные значения
             title_prefix: Префикс для заголовков графиков
         """
-        # Обратное преобразование предсказаний
-        predicted_values = self._inverse_transform(predicted_values)
-        
         if self.task_type == 'regression':
             return self._plot_regression_diagnostics(real_values, predicted_values, title_prefix)
         elif self.task_type == 'classification':
@@ -600,7 +584,7 @@ class ModelDiagnostics:
     def analyze_top_errors(self, top_percent=0.1, error_type='abs', plot=True):
         if self.task_type == 'regression':
             predicted = self.model.predict(self.X_train[self.features])
-            errors = self._inverse_transform(self.y_train) - predicted
+            errors = self.y_train - predicted
 
             if error_type == 'abs':
                 error_metric = np.abs(errors)
