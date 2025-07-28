@@ -143,18 +143,9 @@ class TuningHyperparameters:
                             
                             # Дополнительные параметры
                             'leaf_estimation_method': trial.suggest_categorical('leaf_estimation_method', ['Newton', 'Gradient']),
-                            'leaf_estimation_iterations': trial.suggest_int('leaf_estimation_iterations', 1, 10),
-                            'feature_border_type': trial.suggest_categorical('feature_border_type', 
-                                                                            ['Median', 'Uniform', 'UniformAndQuantiles', 'MaxLogSum']),
-                            
-                            # Скорость обучения и адаптация
-                            'learning_rate_decay': trial.suggest_float('learning_rate_decay', 0.8, 1.0),
                             
                             # Работа с категориальными признаками
                             'one_hot_max_size': trial.suggest_int('one_hot_max_size', 2, 255),
-                            
-                            # Параметры для уменьшения переобучения
-                            'early_stopping_rounds': trial.suggest_int('early_stopping_rounds', 10, 100),
                             
                             # Фиксированные параметры
                             'random_seed': self.random_seed,
@@ -194,18 +185,9 @@ class TuningHyperparameters:
 
                             # Дополнительные параметры
                             'leaf_estimation_method': trial.suggest_categorical('leaf_estimation_method', ['Newton', 'Gradient']),
-                            'leaf_estimation_iterations': trial.suggest_int('leaf_estimation_iterations', 1, 10),
-                            'feature_border_type': trial.suggest_categorical('feature_border_type',
-                                                                            ['Median', 'Uniform', 'UniformAndQuantiles', 'MaxLogSum']),
-
-                            # Скорость обучения и адаптация
-                            'learning_rate_decay': trial.suggest_float('learning_rate_decay', 0.8, 1.0),
 
                             # Работа с категориальными признаками
                             'one_hot_max_size': trial.suggest_int('one_hot_max_size', 2, 255),
-
-                            # Параметры для уменьшения переобучения
-                            'early_stopping_rounds': trial.suggest_int('early_stopping_rounds', 10, 100),
 
                             # Фиксированные параметры
                             'random_seed': self.random_seed,
@@ -227,8 +209,9 @@ class TuningHyperparameters:
                             _X_train[col] = _X_train[col].astype(str)
                             _X_valid[col] = _X_valid[col].astype(str)
                         pool = Pool(_X_train, _y_train, cat_features=cat_features, feature_names=list(_X_train.columns))
-                        model = ModelClass(**params, verbose=0)
-                        model.fit(pool)
+                        eval_pool = Pool(_X_valid, _y_valid, cat_features=cat_features, feature_names=list(_X_valid.columns))
+                        model = ModelClass(**params)
+                        model.fit(pool, eval_set=eval_pool, early_stopping_rounds=trial.suggest_int('early_stopping_rounds', 10, 100), verbose=False)
                         # Используем ModelDiagnostics
                         diag = ModelDiagnostics(_X_train, _y_train, _X_valid, _y_valid, model, features=self.features, cat_features=cat_features, task_type=self.task_type)
                         train_metrics, valid_metrics = diag.compute_metrics(print_metrics=False)
@@ -249,8 +232,9 @@ class TuningHyperparameters:
                             _X_valid[col] = _X_valid[col].astype(str)
                         self.X_test[cat_features] = self.X_test[cat_features].astype(str)
                         pool = Pool(_X_train, _y_train, cat_features=cat_features, feature_names=list(_X_train.columns))
-                        model = ModelClass(**params, verbose=0)
-                        model.fit(pool)
+                        eval_pool = Pool(_X_valid, _y_valid, cat_features=cat_features, feature_names=list(_X_valid.columns))
+                        model = ModelClass(**params)
+                        model.fit(pool, eval_set=eval_pool, early_stopping_rounds=trial.suggest_int('early_stopping_rounds', 10, 100), verbose=False)
                         diag = ModelDiagnostics(_X_train, _y_train, _X_valid, _y_valid, model, features=self.features, cat_features=cat_features, task_type=self.task_type)
                         train_metrics, valid_metrics = diag.compute_metrics(print_metrics=False)
                         # Тест
@@ -268,8 +252,9 @@ class TuningHyperparameters:
                     _X_train[col] = _X_train[col].astype(str)
                     _X_test[col] = _X_test[col].astype(str)
                 pool = Pool(_X_train, _y_train, cat_features=cat_features, feature_names=list(_X_train.columns))
-                model = ModelClass(**params, verbose=0)
-                model.fit(pool)
+                eval_pool = Pool(_X_test, _y_test, cat_features=cat_features, feature_names=list(_X_test.columns))
+                model = ModelClass(**params)
+                model.fit(pool, eval_set=eval_pool, early_stopping_rounds=trial.suggest_int('early_stopping_rounds', 10, 100), verbose=False)
                 diag = ModelDiagnostics(_X_train, _y_train, _X_test, _y_test, model, features=self.features, cat_features=cat_features, task_type=self.task_type)
                 train_metrics, test_metrics = diag.compute_metrics(print_metrics=False)
                 avg_valid_metric = test_metrics[self.optimize_metric]
