@@ -200,53 +200,92 @@ class ModelDiagnostics:
 
             return metrics
     
-    def compute_classification_metrics(self, real_values, predicted_proba):
-            predicted_labels = (predicted_proba >= 0.5).astype(int)
-            # Подсчёт TP, TN, FP, FN
-            TP = ((real_values == 1) & (predicted_labels == 1)).sum()
-            TN = ((real_values == 0) & (predicted_labels == 0)).sum()
-            FP = ((real_values == 0) & (predicted_labels == 1)).sum()
-            FN = ((real_values == 1) & (predicted_labels == 0)).sum()
-
-            # Вычисление метрик
-            try:
-                sensitivity = TP / (TP + FN)
-            except ZeroDivisionError:
-                sensitivity = float('nan')
-
-            try:
-                specificity = TN / (TN + FP)
-            except ZeroDivisionError:
-                specificity = float('nan')
-
-            youden_index = sensitivity + specificity - 1
-
-            metrics = {
-                'f1_score': f1_score(real_values, predicted_labels),
-                'precision_score': precision_score(real_values, predicted_labels),
-                'recall_score': recall_score(real_values, predicted_labels),
-                'sensitivity': sensitivity,
-                'specificity': specificity,
-                'youden_index': youden_index,
-                'mcc': matthews_corrcoef(real_values, predicted_labels),
-                'shift': predicted_labels.sum() / real_values.sum() if real_values.sum() > 0 else float('nan')
-            }
-
-            # Добавляем AUC-ROC, PR-AUC, Gini и ECE, если есть вероятности
-            metrics['roc_auc'] = roc_auc_score(real_values, predicted_proba)
-            metrics['pr_auc'] = average_precision_score(real_values, predicted_proba)
+    def compute_classification_metrics(self, real_values, predicted_proba, thresholds=None, best_threshold_metric='f1_score'):
+            """
+            Метрики классификации: roc_auc, pr_auc, gini, ece — один раз;
+            f1, precision, recall, sensitivity, specificity, youden, mcc, shift — для лучшего threshold.
+            По умолчанию thresholds: 0..1 с шагом 0.01.
             
-            # Используем метрику Gini из gini.py для классификации
+            Args:
+                real_values: Истинные метки классов
+                predicted_proba: Предсказанные вероятности
+                thresholds: Список порогов для перебора (по умолчанию 0..1 с шагом 0.01)
+                best_threshold_metric: Метрика для поиска лучшего threshold. Доступные значения:
+                    'f1_score', 'precision_score', 'recall_score', 'sensitivity', 'specificity',
+                    'youden_index', 'mcc', 'shift' (по умолчанию 'f1_score')
+            """
+            if thresholds is None:
+                thresholds = np.arange(0, 1.01, 0.01)
+            
+            # Доступные метрики для выбора лучшего threshold
+            available_metrics = ['f1_score', 'precision_score', 'recall_score', 'sensitivity', 
+                               'specificity', 'youden_index', 'mcc', 'shift']
+            if best_threshold_metric not in available_metrics:
+                raise ValueError(
+                    f"Неподдерживаемая метрика '{best_threshold_metric}'. "
+                    f"Доступные метрики: {', '.join(available_metrics)}"
+                )
+            
+            # Метрики, не зависящие от порога
+            metrics = {
+                'roc_auc': roc_auc_score(real_values, predicted_proba),
+                'pr_auc': average_precision_score(real_values, predicted_proba),
+                'ece': self._calculate_ece(real_values, predicted_proba),
+            }
             try:
                 metrics['gini'] = Gini(real_values, predicted_proba)
-            except:
+            except Exception:
                 metrics['gini'] = float('nan')
-                
-            metrics['ece'] = self._calculate_ece(real_values, predicted_proba)
 
+            # По каждому порогу — TP/TN/FP/FN и производные метрики
+            metrics_by_threshold = {}
+            for t in thresholds:
+                pred_labels = (predicted_proba >= t).astype(int)
+                TP = ((real_values == 1) & (pred_labels == 1)).sum()
+                TN = ((real_values == 0) & (pred_labels == 0)).sum()
+                FP = ((real_values == 0) & (pred_labels == 1)).sum()
+                FN = ((real_values == 1) & (pred_labels == 0)).sum()
+                try:
+                    sensitivity = TP / (TP + FN)
+                except ZeroDivisionError:
+                    sensitivity = float('nan')
+                try:
+                    specificity = TN / (TN + FP)
+                except ZeroDivisionError:
+                    specificity = float('nan')
+                metrics_by_threshold[t] = {
+                    'f1_score': f1_score(real_values, pred_labels),
+                    'precision_score': precision_score(real_values, pred_labels),
+                    'recall_score': recall_score(real_values, pred_labels),
+                    'sensitivity': sensitivity,
+                    'specificity': specificity,
+                    'youden_index': sensitivity + specificity - 1,
+                    'mcc': matthews_corrcoef(real_values, pred_labels),
+                    'shift': pred_labels.sum() / real_values.sum() if real_values.sum() > 0 else float('nan'),
+                }
+            
+            # Находим лучший threshold по выбранной метрике
+            best_threshold = max(
+                thresholds, 
+                key=lambda t: metrics_by_threshold[t][best_threshold_metric] 
+                if not np.isnan(metrics_by_threshold[t][best_threshold_metric]) else -np.inf
+            )
+            metrics['best_threshold'] = best_threshold
+            metrics['best_threshold_metric'] = best_threshold_metric
+            metrics.update(metrics_by_threshold[best_threshold])
+            
             return metrics
     
-    def compute_metrics(self, print_metrics=False):
+    def compute_metrics(self, print_metrics=False, best_threshold_metric='f1_score'):
+        """
+        Вычисление метрик для модели.
+        
+        Args:
+            print_metrics: Если True, выводит метрики на экран
+            best_threshold_metric: Метрика для поиска лучшего threshold (только для классификации).
+                Доступные значения: 'f1_score', 'precision_score', 'recall_score', 
+                'sensitivity', 'specificity', 'youden_index', 'mcc', 'shift'
+        """
         if self.task_type == 'regression':
             pred_train = self.model.predict(self.X_train[self.features])
             pred_test = self.model.predict(self.X_test[self.features])
@@ -256,8 +295,12 @@ class ModelDiagnostics:
         elif self.task_type == 'classification':
             pred_train_proba = self.model.predict_proba(self.X_train[self.features])[:, 1]
             pred_test_proba = self.model.predict_proba(self.X_test[self.features])[:, 1]
-            self.metrics_train = self.compute_classification_metrics(self.y_train, pred_train_proba)
-            self.metrics_test = self.compute_classification_metrics(self.y_test, pred_test_proba)
+            self.metrics_train = self.compute_classification_metrics(
+                self.y_train, pred_train_proba, best_threshold_metric=best_threshold_metric
+            )
+            self.metrics_test = self.compute_classification_metrics(
+                self.y_test, pred_test_proba, best_threshold_metric=best_threshold_metric
+            )
         else:
             raise ValueError("task_type должен быть 'regression' или 'classification'")
 
