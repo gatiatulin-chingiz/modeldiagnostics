@@ -73,37 +73,34 @@ class ModelDiagnostics:
     def _calculate_ece(self, y_true, y_pred_proba, n_bins=10):
         """
         Вычисление Expected Calibration Error (ECE)
-        
-        Args:
-            y_true: истинные метки классов
-            y_pred_proba: предсказанные вероятности
-            n_bins: количество бинов для разбиения
-            
-        Returns:
-            float: значение ECE
+
+        Equal-width бины по P(y=1): ECE = sum_b (|B_b|/N) * |mean(p in B_b) - freq(y=1 in B_b)|.
         """
-        # Разбиваем предсказания на бины
+        y_true = np.asarray(y_true, dtype=float)
+        y_pred_proba = np.asarray(y_pred_proba, dtype=float)
+        mask = np.isfinite(y_true) & np.isfinite(y_pred_proba)
+        y_true = y_true[mask]
+        y_pred_proba = y_pred_proba[mask]
+        if len(y_true) == 0:
+            return float("nan")
+
+        n_bins = max(2, int(n_bins))
         bin_boundaries = np.linspace(0, 1, n_bins + 1)
-        bin_lowers = bin_boundaries[:-1]
-        bin_uppers = bin_boundaries[1:]
-        
         ece = 0.0
-        for bin_lower, bin_upper in zip(bin_lowers, bin_uppers):
-            # Находим индексы предсказаний в текущем бине
-            in_bin = np.logical_and(y_pred_proba > bin_lower, y_pred_proba <= bin_upper)
-            
-            if np.sum(in_bin) > 0:
-                # Средняя предсказанная вероятность в бине
-                mean_pred_prob = np.mean(y_pred_proba[in_bin])
-                # Доля истинных положительных результатов в бине
-                accuracy_in_bin = np.mean(y_true[in_bin])
-                # Количество образцов в бине
-                bin_size = np.sum(in_bin)
-                
-                # Добавляем вклад бина в ECE
-                ece += (bin_size / len(y_true)) * np.abs(mean_pred_prob - accuracy_in_bin)
-        
-                return ece
+        n = len(y_true)
+        for i in range(n_bins):
+            lo, hi = bin_boundaries[i], bin_boundaries[i + 1]
+            if i < n_bins - 1:
+                in_bin = (y_pred_proba >= lo) & (y_pred_proba < hi)
+            else:
+                in_bin = (y_pred_proba >= lo) & (y_pred_proba <= hi)
+            if not np.any(in_bin):
+                continue
+            bin_size = int(np.sum(in_bin))
+            mean_pred_prob = float(np.mean(y_pred_proba[in_bin]))
+            accuracy_in_bin = float(np.mean(y_true[in_bin]))
+            ece += (bin_size / n) * abs(mean_pred_prob - accuracy_in_bin)
+        return float(ece)
     
     def _calculate_hosmer_lemeshow_data(self, y_true, y_pred_proba, n_bins=10):
         """
